@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F5 iHealth Analytics - Panel de Control</title>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dark-mode">
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <i class="fa-solid fa-triangle-exclamation brand-logo"></i>
+                <div class="brand-name">
+                    <span>F5 iHealth</span>
+                    <span class="sub-brand">Watcher</span>
+                </div>
+            </div>
+            <nav class="sidebar-menu">
+                <a href="#" class="menu-item active" id="btn-overview">
+                    <i class="fa-solid fa-chart-pie"></i> Vista General
+                </a>
+                <a href="#" class="menu-item" id="btn-cves">
+                    <i class="fa-solid fa-shield-halved"></i> Vulnerabilidades CVE
+                </a>
+                <a href="#" class="menu-item" id="btn-heuristics">
+                    <i class="fa-solid fa-stethoscope"></i> Diagnósticos Hitos
+                </a>
+                <a href="#" class="menu-item" id="btn-settings">
+                    <i class="fa-solid fa-sliders"></i> Ajustes de Flota
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="device-status-badge active-status">
+                    <span class="pulse-dot"></span>
+                    <span>Comprobando Conexión...</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Top Header -->
+            <header class="header">
+                <div class="header-title-area">
+                    <h1>F5 BIG-IP: <span id="lbl-hostname" class="text-gradient">Cargando...</span></h1>
+                    <p class="subtitle">Último diagnóstico procesado: <span id="lbl-last-scan">...</span></p>
+                </div>
+                <div class="header-actions">
+                    <div class="device-select">
+                        <i class="fa-solid fa-server"></i>
+                        <select id="device-selector">
+                            <option value="">Cargando dispositivos...</option>
+                        </select>
+                    </div>
+                    <button class="btn-primary" id="btn-force-scan">
+                        <i class="fa-solid fa-rotate"></i> Escanear Ahora
+                    </button>
+                </div>
+            </header>
+
+            <!-- Stats Overview Cards -->
+            <section class="stats-grid">
+                <!-- Card 1: Health Score -->
+                <div class="stat-card glass-card">
+                    <div class="card-header">
+                        <span class="card-title">Score de Salud</span>
+                        <i class="fa-solid fa-heart-circle-check icon-green"></i>
+                    </div>
+                    <div class="card-body-row">
+                        <div class="score-display">
+                            <span class="score-num" id="lbl-health-score">0</span>
+                            <span class="score-den">/100</span>
+                        </div>
+                        <div class="score-progress">
+                            <svg class="progress-ring" width="60" height="60">
+                                <circle class="progress-ring-bg" stroke="#1f2937" stroke-width="6" fill="transparent" r="24" cx="30" cy="30"/>
+                                <circle class="progress-ring-bar" id="score-ring" stroke="#10b981" stroke-width="6" stroke-linecap="round" fill="transparent" r="24" cx="30" cy="30" stroke-dasharray="150.79" stroke-dashoffset="150.79"/>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <span class="footer-trend text-green"><i class="fa-solid fa-arrow-up"></i> +2%</span>
+                        <span class="footer-desc">desde el último escaneo</span>
+                    </div>
+                </div>
+
+                <!-- Card 2: Critical Alerts -->
+                <div class="stat-card glass-card" data-filter="critical">
+                    <div class="card-header">
+                        <span class="card-title">Alertas Críticas</span>
+                        <i class="fa-solid fa-circle-radiation icon-red"></i>
+                    </div>
+                    <div class="card-value red-value" id="lbl-critical-count">0</div>
+                    <div class="card-footer">
+                        <span class="footer-desc">Requieren atención inmediata</span>
+                    </div>
+                </div>
+
+                <!-- Card 3: Warnings -->
+                <div class="stat-card glass-card" data-filter="warning">
+                    <div class="card-header">
+                        <span class="card-title">Advertencias</span>
+                        <i class="fa-solid fa-triangle-exclamation icon-yellow"></i>
+                    </div>
+                    <div class="card-value yellow-value" id="lbl-warning-count">0</div>
+                    <div class="card-footer">
+                        <span class="footer-desc">Acciones preventivas sugeridas</span>
+                    </div>
+                </div>
+
+                <!-- Card 4: CVEs Detected -->
+                <div class="stat-card glass-card" data-filter="cve">
+                    <div class="card-header">
+                        <span class="card-title">CVEs Identificados</span>
+                        <i class="fa-solid fa-bug icon-purple"></i>
+                    </div>
+                    <div class="card-value purple-value" id="lbl-cve-count">0</div>
+                    <div class="card-footer">
+                        <span class="footer-trend text-red"><i class="fa-solid fa-shield-virus"></i> Alto</span>
+                        <span class="footer-desc">Vulnerabilidades de firmware</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Dashboard Split Layout -->
+            <section class="dashboard-body">
+                <!-- Left Column: Diagnostic List -->
+                <div class="panel-left glass-card">
+                    <div class="panel-header">
+                        <h2>Detalle de Heurísticas Encontradas</h2>
+                        <div class="filter-pills">
+                            <button class="pill-btn active" id="btn-filter-all">Todos</button>
+                            <button class="pill-btn" id="btn-filter-critical">Crítico</button>
+                            <button class="pill-btn" id="btn-filter-warning">Advertencias</button>
+                            <button class="pill-btn" id="btn-filter-info">Info</button>
+                        </div>
+                    </div>
+                    <div class="alerts-list-container" id="alerts-list">
+                        <div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i> Cargando diagnósticos...</div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Graphs & System Performance -->
+                <div class="panel-right">
+                    <!-- Graph Card 1 -->
+                    <div class="glass-card chart-card">
+                        <div class="panel-header">
+                            <h2>Historial de Uso de Recursos</h2>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="resourceChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Graph Card 2 -->
+                    <div class="glass-card chart-card margin-top-20">
+                        <div class="panel-header">
+                            <h2>Tráfico de Conexiones Activas</h2>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="connectionsChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <!-- Custom JS -->
+    <script src="app.js"></script>
+</body>
+</html>
