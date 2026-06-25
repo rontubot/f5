@@ -54,9 +54,14 @@ class iHealthClient:
             "User-Agent": "iHealthWatcherBackend/1.0"
         }
         
+        import re
         filename = os.path.basename(file_path)
+        # Sanitize filename: replace spaces, parentheses, or any non-alphanumeric/dot/dash/underscore character with an underscore
+        # to comply with F5's extremely strict filename validation rules
+        clean_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
+        
         with open(file_path, 'rb') as f:
-            files = {'file': (filename, f, 'application/octet-stream')}
+            files = {'file': (clean_filename, f, 'application/octet-stream')}
             response = requests.post(f"{API_BASE_URL}/qkviews", headers=headers, files=files, timeout=300)
             response.raise_for_status()
             
