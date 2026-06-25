@@ -137,7 +137,26 @@ class iHealthClient:
         response = requests.get(url, headers=headers, timeout=20)
         response.raise_for_status()
         
-        status = response.json().get("status", "").lower()
+        status = ""
+        try:
+            json_data = response.json()
+            print(f"[iHealth] Cuerpo JSON de respuesta de estado de F5: {json_data}")
+            
+            # Intentamos obtener el estado de cualquiera de las posibles claves que usa la API de F5
+            status_val = json_data.get("processing_status") or json_data.get("processingStatus") or json_data.get("status")
+            if status_val:
+                status = str(status_val).lower()
+        except Exception as err:
+            print(f"[iHealth] No se pudo decodificar el estado como JSON o leer las claves: {err}")
+            # Si responde con XML, usamos una expresión regular para buscar la etiqueta <processing_status>
+            import re
+            match = re.search(r'<processing_status>([^<]+)</processing_status>', response.text, re.IGNORECASE)
+            if match:
+                status = match.group(1).lower()
+                print(f"[iHealth] Estado extraído de XML mediante expresión regular: '{status}'")
+            else:
+                print(f"[iHealth] Contenido bruto de respuesta de estado: {response.text}")
+                
         print(f"[iHealth] Estado actual en iHealth para ID {qkview_id}: '{status}'")
         return status
 

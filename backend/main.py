@@ -66,7 +66,7 @@ def process_qkview_task(file_path: str, hostname: str):
         for attempt in range(1, 41):
             print(f"[Task] Intento de sondeo {attempt}/40 para el ID: {qkview_id}...")
             status = ihealth_client.check_status(qkview_id)
-            if status in ["complete", "finished", "analyzed"]:
+            if status in ["complete", "completed", "finished", "analyzed", "success", "succeeded"]:
                 print(f"[Task] ¡Análisis completado en iHealth en el intento {attempt}!")
                 success = True
                 break
