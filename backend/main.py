@@ -194,7 +194,7 @@ async def health():
     return {"status": "healthy", "time": time.time()}
 
 # Mount static frontend files
-# When deployed on Railway with root directory '/backend', the frontend is at '../frontend'
-FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
+# When deployed on Railway, the frontend is inside the backend directory
+FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "frontend"))
 if os.path.exists(FRONTEND_DIR):
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

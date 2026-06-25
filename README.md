@@ -14,15 +14,16 @@ f5-ihealth-watcher/
 │   ├── backup_ucs.sh       # Respaldos UCS con rotación (mantiene 5)
 │   ├── generate_qkview.sh  # Generación de QKViews y envío HTTP POST
 │   └── README.md           # Guía de instalación rápida en el F5
-├── backend/                # Servidor de Tránsito (API en Python FastAPI)
-│   ├── main.py             # Servidor API (Endpoints de carga y consulta)
-│   ├── ihealth.py          # Cliente API de F5 iHealth (OAuth2, upload, poll)
-│   ├── database/           # Almacenamiento ligero de diagnósticos históricos
-│   └── requirements.txt    # Dependencias de Python
-└── frontend/               # Panel de Control Visual (Dashboard)
-    ├── index.html          # Interfaz de usuario premium (Dark Mode)
-    ├── styles.css          # Estilos modernos con Glassmorphism
-    └── app.js              # Controlador interactivo y consumo de API
+└── backend/                # Servidor de Tránsito (API en Python FastAPI)
+    ├── main.py             # Servidor API (Endpoints de carga y consulta)
+    ├── ihealth.py          # Cliente API de F5 iHealth (OAuth2, upload, poll)
+    ├── requirements.txt    # Dependencias de Python (incluye aiofiles)
+    ├── Procfile            # Comando de arranque para Railway
+    ├── database/           # Diagnósticos históricos en JSON
+    └── frontend/           # Panel de Control Visual (Dashboard Web integrado)
+        ├── index.html      # Interfaz de usuario premium (Dark Mode)
+        ├── styles.css      # Estilos modernos con Glassmorphism
+        └── app.js          # Controlador interactivo y consumo de API
 ```
 
 ---
