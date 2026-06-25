@@ -53,6 +53,12 @@ let currentDevices = [];
 // --- 2. Inicialización del Dashboard ---
 document.addEventListener("DOMContentLoaded", () => {
     checkBackendConnection();
+    // Mantener la página sincronizada en vivo de forma constante cada 30 segundos
+    setInterval(() => {
+        if (isBackendOnline) {
+            loadRealDevices();
+        }
+    }, 30000);
 });
 
 // Comprobar si el backend en Railway está respondiendo
