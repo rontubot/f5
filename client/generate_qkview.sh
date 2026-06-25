@@ -48,8 +48,8 @@ log_message "info" "QKView generated successfully at $FILEPATH. File size: $(du 
 log_message "info" "Uploading QKView to Transit Server at $TRANSIT_API_URL..."
 
 # Upload using curl POST
-# Using full path for curl
-/usr/bin/curl -s -o /dev/null -w "%{http_code}" \
+# Using full path for curl and -k for insecure SSL cert trust
+/usr/bin/curl -k -s -o /dev/null -w "%{http_code}" \
   -X POST \
   -H "Authorization: Bearer $TRANSIT_TOKEN" \
   -F "file=@$FILEPATH" \
@@ -58,7 +58,7 @@ log_message "info" "Uploading QKView to Transit Server at $TRANSIT_API_URL..."
 HTTP_CODE=$(cat /var/tmp/upload_status.txt)
 rm -f /var/tmp/upload_status.txt
 
-if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
+if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ] || [ "$HTTP_CODE" -eq 202 ]; then
     log_message "info" "QKView uploaded successfully to Transit Server (HTTP $HTTP_CODE)."
 else
     log_message "err" "Failed to upload QKView. Transit Server responded with HTTP code $HTTP_CODE."
