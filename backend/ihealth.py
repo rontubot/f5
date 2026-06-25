@@ -56,9 +56,10 @@ class iHealthClient:
         print(f"[iHealth] Iniciando proceso de subida del QKView en: {file_path}")
         token = self.get_token()
         
+        # CORREGIDO: Se cambia "application/vnd.f5.ihealth.api" por "application/json" para forzar respuesta JSON
         headers = {
             "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.f5.ihealth.api",
+            "Accept": "application/json",
             "User-Agent": "iHealthWatcherBackend/1.0"
         }
         
@@ -96,7 +97,14 @@ class iHealthClient:
                 qkview_id = location_val.split("/")[-1]
                 print(f"[iHealth] ID extraído de la cabecera Location: {qkview_id}")
                 
-            # 2. Si no está en 'Location', intentamos leer el cuerpo JSON de forma segura
+            # 2. SEGUNDA PROTECCIÓN (EXPRESIÓN REGULAR): Escanea el texto (XML o JSON) buscando /qkviews/ID
+            if not qkview_id:
+                match = re.search(r'/qkviews/([0-9]+)', response.text)
+                if match:
+                    qkview_id = match.group(1)
+                    print(f"[iHealth] ID extraído con éxito mediante expresión regular: {qkview_id}")
+                
+            # 3. Si no está, intentamos leer el cuerpo JSON de forma segura
             if not qkview_id:
                 try:
                     data = response.json()
@@ -118,9 +126,10 @@ class iHealthClient:
         print(f"[iHealth] Consultando estado del diagnóstico en F5 para el ID: {qkview_id}...")
         token = self.get_token()
         
+        # CORREGIDO: Se cambia a "application/json" para forzar respuesta JSON
         headers = {
             "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.f5.ihealth.api",
+            "Accept": "application/json",
             "User-Agent": "iHealthWatcherBackend/1.0"
         }
         
@@ -137,9 +146,10 @@ class iHealthClient:
         print(f"[iHealth] Descargando reporte detallado de heurísticas desde F5 para el ID: {qkview_id}...")
         token = self.get_token()
         
+        # CORREGIDO: Se cambia a "application/json" para forzar respuesta JSON
         headers = {
             "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.f5.ihealth.api",
+            "Accept": "application/json",
             "User-Agent": "iHealthWatcherBackend/1.0"
         }
         
