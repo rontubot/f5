@@ -1,0 +1,4 @@
+# Ignorar archivos QKView pesados para evitar límites de tamaño en GitHub
+*.qkview
+/qkview/*
+!/qkview/.gitkeep
