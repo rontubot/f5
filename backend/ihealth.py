@@ -63,6 +63,10 @@ class iHealthClient:
         with open(file_path, 'rb') as f:
             files = {'file': (clean_filename, f, 'application/octet-stream')}
             response = requests.post(f"{API_BASE_URL}/qkviews", headers=headers, files=files, timeout=300)
+            
+            if response.status_code >= 400:
+                raise ValueError(f"F5 iHealth upload failed ({response.status_code}): {response.text}")
+                
             response.raise_for_status()
             
             data = response.json()
