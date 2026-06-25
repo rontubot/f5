@@ -62,25 +62,30 @@ def process_qkview_task(file_path: str, hostname: str):
         
         # 2. Poll for completion (interval 15s, max 40 attempts = 10 mins)
         success = False
-        for _ in range(40):
+        print(f"[Task] Iniciando ciclo de sondeo (polling) en iHealth para {hostname}...")
+        for attempt in range(1, 41):
+            print(f"[Task] Intento de sondeo {attempt}/40 para el ID: {qkview_id}...")
             status = ihealth_client.check_status(qkview_id)
             if status in ["complete", "finished", "analyzed"]:
+                print(f"[Task] ¡Análisis completado en iHealth en el intento {attempt}!")
                 success = True
                 break
             elif status in ["failed", "error"]:
+                print(f"[Task] ERROR: El estado del análisis en iHealth reporta: '{status}'")
                 break
             time.sleep(15)
             
         if not success:
-            print(f"[{hostname}] iHealth analysis failed or timed out.")
+            print(f"[Task] [{hostname}] iHealth analysis failed or timed out.")
             devices = load_devices()
             if hostname in devices:
                 devices[hostname]["status"] = "failed"
-                devices[hostname]["error_message"] = "El análisis en iHealth falló o superó el tiempo de espera."
+                devices[hostname]["error_message"] = "El análisis en iHealth falló o superó el tiempo de espera en F5."
                 save_devices(devices)
             return
 
         # 3. Download diagnostics
+        print(f"[Task] Descargando el archivo JSON de diagnóstico para {hostname}...")
         diagnostics = ihealth_client.get_diagnostics(qkview_id)
         
         # 4. Parse severity counts and calculate health score
