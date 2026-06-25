@@ -1,0 +1,4 @@
+# Este archivo sirve para que Git registre esta carpeta vacía en el repositorio.
+# El backend de Railway usará esta carpeta para almacenar:
+# 1. El registro de dispositivos monitoreados (devices.json).
+# 2. Los informes de diagnóstico descargados desde la API de iHealth (<hostname>_diagnostics.json).
