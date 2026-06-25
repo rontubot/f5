@@ -204,20 +204,61 @@ async function loadRealDeviceData(hostname) {
         const response = await fetch(`${BACKEND_API_URL}/api/diagnostics/${hostname}`);
         const diagData = await response.json();
         
-        // Parsear heurísticas
-        const rawHits = diagData.diagnostic_results?.diagnostic_result || [];
+        // Parsear heurísticas - Estructura real de F5: diagnostics -> diagnostic
+        const rawHits = diagData.diagnostics?.diagnostic || [];
         const hits = Array.isArray(rawHits) ? rawHits : (rawHits ? [rawHits] : []);
 
-        // Adaptar formato de iHealth a la interfaz
-        const heuristics = hits.map(hit => ({
-            id: hit.id || "N/A",
-            severity: (hit.severity || "info").toLowerCase(),
-            title: hit.title || "Alerta sin título",
-            category: hit.category || "General",
-            cve: hit.cve || null,
-            description: hit.description || "Sin descripción detallada.",
-            solution: hit.solution || "Consulte la documentación de F5 para este ID."
-        }));
+        // Filtrar solo las que coinciden activamente con este dispositivo (match === true)
+        const matchedHits = hits.filter(hit => hit.run_data?.match === true);
+
+        // Adaptar formato real de iHealth al esquema de la interfaz
+        const heuristics = matchedHits.map(hit => {
+            const results = hit.results || {};
+            const importance = (hit.run_data?.h_importance || "info").toLowerCase();
+            
+            // Mapear importancia de F5 a los colores/gravedad de la interfaz
+            let uiSeverity = "info";
+            if (importance === "high" || importance === "critical") {
+                uiSeverity = "critical";
+            } else if (importance === "medium") {
+                uiSeverity = "warning";
+            }
+            
+            // Concatenar códigos CVE si existen
+            const cvesList = results.h_cve_ids || [];
+            const cveString = cvesList.length > 0 ? cvesList.join(", ") : null;
+            
+            // Obtener el enlace al artículo de soporte oficial de F5 (AskF5)
+            const solutionLinks = results.solution || [];
+            const linkUrl = solutionLinks.length > 0 ? solutionLinks[0].value : "";
+            let solutionText = results.h_action || "";
+            if (linkUrl) {
+                solutionText += `\n\nReferencia oficial AskF5: ${linkUrl}`;
+            }
+            
+            // Determinar una categoría basada en el ID o título para mayor orden visual
+            let category = "Tráfico Local (LTM)";
+            const hitName = hit.name || "";
+            if (hitName.startsWith("H")) {
+                category = "Configuración GTM/DNS";
+            } else if (cveString || results.h_header?.toLowerCase().includes("vulnerability") || results.h_header?.toLowerCase().includes("cve")) {
+                category = "Seguridad (CVE)";
+            } else if (results.h_header?.toLowerCase().includes("profile") || results.h_header?.toLowerCase().includes("tcp")) {
+                category = "Perfiles de Protocolo";
+            } else {
+                category = "Optimización de Sistema";
+            }
+            
+            return {
+                id: hit.name || results.h_name || "N/A",
+                severity: uiSeverity,
+                title: results.h_header || "Alerta sin título",
+                category: category,
+                cve: cveString,
+                description: results.h_summary || "Sin descripción detallada.",
+                solution: solutionText || "Consulte el artículo oficial de F5."
+            };
+        });
 
         renderHeuristics(heuristics);
 

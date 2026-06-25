@@ -89,9 +89,13 @@ def process_qkview_task(file_path: str, hostname: str):
         diagnostics = ihealth_client.get_diagnostics(qkview_id)
         
         # 4. Parse severity counts and calculate health score
-        hits = diagnostics.get("diagnostic_results", {}).get("diagnostic_result", [])
+        # The F5 iHealth API structure: diagnostics -> diagnostic -> [list of items]
+        diagnostics_node = diagnostics.get("diagnostics", {})
+        hits = diagnostics_node.get("diagnostic", [])
         if not isinstance(hits, list):
             hits = [hits] if hits else []
+            
+        print(f"[Task] Se encontraron {len(hits)} heurísticas totales en el diagnóstico.")
             
         critical_count = 0
         warning_count = 0
@@ -99,18 +103,31 @@ def process_qkview_task(file_path: str, hostname: str):
         cve_count = 0
         
         for hit in hits:
-            severity = hit.get("severity", "").lower()
-            if severity == "critical":
+            run_data = hit.get("run_data", {})
+            # Solo procesar si la heurística coincide con el estado del F5 (match === True)
+            if not run_data.get("match", False):
+                continue
+                
+            results = hit.get("results", {})
+            importance = run_data.get("h_importance", "").lower()
+            
+            # Mapear importancia de F5 a nuestras categorías (HIGH/CRITICAL -> critical, MEDIUM -> warning, LOW/INFO -> info)
+            if importance in ["high", "critical"]:
                 critical_count += 1
-            elif severity == "warning":
+            elif importance == "medium":
                 warning_count += 1
-            elif severity == "info":
+            else:
                 info_count += 1
                 
-            if hit.get("cve") or "cve-" in str(hit.get("title", "")).lower():
-                cve_count += 1
+            # Contar la cantidad de CVEs identificados
+            cve_ids = results.get("h_cve_ids", [])
+            if cve_ids:
+                cve_count += len(cve_ids)
 
-        health_score = max(30, 100 - (critical_count * 12) - (warning_count * 4))
+        # Calcular score de salud real (iniciando en 100 y restando peso por alertas)
+        # Cada alerta crítica descuenta 10 puntos, cada advertencia descuenta 3 puntos
+        health_score = max(30, 100 - (critical_count * 10) - (warning_count * 3))
+        print(f"[Task] Estadísticas consolidadas para {hostname}: Críticas={critical_count}, Advertencias={warning_count}, Info={info_count}, CVEs={cve_count}, Score={health_score}")
         
         # 5. Save diagnostic results JSON
         device_diag_file = os.path.join(DB_DIR, f"{hostname}_diagnostics.json")
