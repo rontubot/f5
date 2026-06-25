@@ -60,11 +60,11 @@ def process_qkview_task(file_path: str, hostname: str):
         # 1. Upload to iHealth
         qkview_id = ihealth_client.upload_qkview(file_path)
         
-        # 2. Poll for completion (interval 15s, max 40 attempts = 10 mins)
+        # 2. Poll for completion (interval 30s, max 60 attempts = 30 mins)
         success = False
         print(f"[Task] Iniciando ciclo de sondeo (polling) en iHealth para {hostname}...")
-        for attempt in range(1, 41):
-            print(f"[Task] Intento de sondeo {attempt}/40 para el ID: {qkview_id}...")
+        for attempt in range(1, 61):
+            print(f"[Task] Intento de sondeo {attempt}/60 para el ID: {qkview_id}...")
             status = ihealth_client.check_status(qkview_id)
             if status in ["complete", "completed", "finished", "analyzed", "success", "succeeded"]:
                 print(f"[Task] ¡Análisis completado en iHealth en el intento {attempt}!")
@@ -73,7 +73,7 @@ def process_qkview_task(file_path: str, hostname: str):
             elif status in ["failed", "error"]:
                 print(f"[Task] ERROR: El estado del análisis en iHealth reporta: '{status}'")
                 break
-            time.sleep(15)
+            time.sleep(30)
             
         if not success:
             print(f"[Task] [{hostname}] iHealth analysis failed or timed out.")
