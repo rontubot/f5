@@ -73,13 +73,17 @@ def process_qkview_task(file_path: str, hostname: str):
             
         if not success:
             print(f"[{hostname}] iHealth analysis failed or timed out.")
+            devices = load_devices()
+            if hostname in devices:
+                devices[hostname]["status"] = "failed"
+                devices[hostname]["error_message"] = "El análisis en iHealth falló o superó el tiempo de espera."
+                save_devices(devices)
             return
 
         # 3. Download diagnostics
         diagnostics = ihealth_client.get_diagnostics(qkview_id)
         
         # 4. Parse severity counts and calculate health score
-        # iHealth JSON usually contains an array of diagnostic hits
         hits = diagnostics.get("diagnostic_results", {}).get("diagnostic_result", [])
         if not isinstance(hits, list):
             hits = [hits] if hits else []
@@ -98,12 +102,9 @@ def process_qkview_task(file_path: str, hostname: str):
             elif severity == "info":
                 info_count += 1
                 
-            # Check if there is a CVE associated
             if hit.get("cve") or "cve-" in str(hit.get("title", "")).lower():
                 cve_count += 1
 
-        # Calculate custom health score: starting at 100
-        # Deduct 12 points for criticals, 4 points for warnings
         health_score = max(30, 100 - (critical_count * 12) - (warning_count * 4))
         
         # 5. Save diagnostic results JSON
@@ -116,6 +117,7 @@ def process_qkview_task(file_path: str, hostname: str):
         devices[hostname] = {
             "hostname": hostname,
             "last_scan": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "status": "completed",
             "health_score": health_score,
             "stats": {
                 "critical": critical_count,
@@ -129,6 +131,14 @@ def process_qkview_task(file_path: str, hostname: str):
 
     except Exception as e:
         print(f"Error processing QKView for {hostname}: {e}")
+        try:
+            devices = load_devices()
+            if hostname in devices:
+                devices[hostname]["status"] = "failed"
+                devices[hostname]["error_message"] = str(e)
+                save_devices(devices)
+        except:
+            pass
     finally:
         # Cleanup temporary uploaded file
         if os.path.exists(file_path):
@@ -162,6 +172,22 @@ async def upload_qkview(
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
+    # Immediately register/update the device as "processing" in the database
+    devices = load_devices()
+    devices[hostname] = {
+        "hostname": hostname,
+        "last_scan": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "status": "processing",
+        "health_score": 0,
+        "stats": {
+            "critical": 0,
+            "warning": 0,
+            "info": 0,
+            "cves": 0
+        }
+    }
+    save_devices(devices)
+
     # Queue the iHealth API upload and processing as a background task
     background_tasks.add_task(process_qkview_task, temp_file_path, hostname)
     

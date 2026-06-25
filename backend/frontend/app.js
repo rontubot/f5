@@ -93,7 +93,11 @@ async function loadRealDevices() {
         devices.forEach(dev => {
             const opt = document.createElement("option");
             opt.value = dev.hostname;
-            opt.innerText = `${dev.hostname} (${dev.last_scan ? 'Conectado' : 'Sin datos'})`;
+            let statusText = "Desconocido";
+            if (dev.status === "processing") statusText = "Procesando...";
+            else if (dev.status === "failed") statusText = "Fallo";
+            else if (dev.status === "completed") statusText = "Listo";
+            opt.innerText = `${dev.hostname} (${statusText})`;
             selector.appendChild(opt);
         });
 
@@ -102,6 +106,13 @@ async function loadRealDevices() {
 
         // Event listener para el selector
         selector.onchange = (e) => loadRealDeviceData(e.target.value);
+
+        // Si hay algún dispositivo procesándose, programar sondeo automático en 8 segundos
+        const hasProcessing = devices.some(dev => dev.status === "processing");
+        if (hasProcessing) {
+            console.log("Detectado dispositivo en procesamiento. Programando recarga en 8 segundos...");
+            setTimeout(loadRealDevices, 8000);
+        }
 
     } catch (err) {
         console.error("Error al cargar dispositivos reales:", err);
@@ -117,6 +128,66 @@ async function loadRealDeviceData(hostname) {
         // Actualizar datos del encabezado y contadores
         document.getElementById("lbl-hostname").innerText = devMeta.hostname;
         document.getElementById("lbl-last-scan").innerText = devMeta.last_scan;
+        
+        // --- Escenario 1: El dispositivo está procesando el QKView en iHealth ---
+        if (devMeta.status === "processing") {
+            document.getElementById("lbl-health-score").innerText = "--";
+            document.getElementById("lbl-critical-count").innerText = "0";
+            document.getElementById("lbl-warning-count").innerText = "0";
+            document.getElementById("lbl-cve-count").innerText = "0";
+            setProgressRing(0);
+            
+            document.getElementById("alerts-list").innerHTML = `
+                <div class="loading-spinner" style="flex-direction: column; gap: 20px; padding: 45px 20px; width: 100%;">
+                    <i class="fa-solid fa-arrows-spin fa-spin fa-3x" style="color: #3b82f6;"></i>
+                    <div style="text-align: center;">
+                        <p style="font-weight: 600; color: #fff; margin-bottom: 8px; font-size: 16px;">Analizando QKView en F5 iHealth...</p>
+                        <p style="font-size: 13px; color: #9ca3af; max-width: 440px; margin: 0 auto; line-height: 1.5;">
+                            El servidor de tránsito recibió el archivo correctamente y lo está enviando a la API oficial de iHealth para su análisis de seguridad. 
+                            Este proceso suele tomar entre 2 y 5 minutos. La pantalla se actualizará sola cuando termine.
+                        </p>
+                    </div>
+                </div>
+            `;
+            
+            // Dibujar gráficas vacías durante la carga
+            const emptyHistory = { labels: ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"], cpu: [0,0,0,0,0,0,0], ram: [0,0,0,0,0,0,0] };
+            initResourceChart(emptyHistory);
+            initConnectionsChart({ labels: ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"], active: [0,0,0,0,0,0,0] });
+            return;
+        }
+
+        // --- Escenario 2: El análisis falló ---
+        if (devMeta.status === "failed") {
+            document.getElementById("lbl-health-score").innerText = "Error";
+            document.getElementById("lbl-critical-count").innerText = "--";
+            document.getElementById("lbl-warning-count").innerText = "--";
+            document.getElementById("lbl-cve-count").innerText = "--";
+            setProgressRing(0);
+            
+            const errMsg = devMeta.error_message || "Fallo en la comunicación o credenciales de la API de iHealth.";
+            document.getElementById("alerts-list").innerHTML = `
+                <div class="loading-spinner" style="flex-direction: column; gap: 20px; padding: 45px 20px; width: 100%;">
+                    <i class="fa-solid fa-circle-xmark fa-3x" style="color: #ef4444;"></i>
+                    <div style="text-align: center;">
+                        <p style="font-weight: 600; color: #fff; margin-bottom: 8px; font-size: 16px;">Error al Procesar Diagnóstico</p>
+                        <p style="font-size: 13px; color: #f87171; max-width: 440px; margin: 0 auto; background: rgba(239, 68, 68, 0.1); padding: 12px; border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.2); line-height: 1.5; font-family: monospace;">
+                            ${errMsg}
+                        </p>
+                        <p style="font-size: 12px; color: #9ca3af; margin-top: 15px; max-width: 400px; margin-left: auto; margin-right: auto;">
+                            Por favor, revise en el dashboard de Railway que las variables <code style="color: #f3f4f6; background: #374151; padding: 2px 4px; border-radius: 4px;">F5_IHEALTH_CLIENT_ID</code> y <code style="color: #f3f4f6; background: #374151; padding: 2px 4px; border-radius: 4px;">F5_IHEALTH_CLIENT_SECRET</code> sean correctas y que sus API credentials tengan permisos activos.
+                        </p>
+                    </div>
+                </div>
+            `;
+            
+            const emptyHistory = { labels: ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"], cpu: [0,0,0,0,0,0,0], ram: [0,0,0,0,0,0,0] };
+            initResourceChart(emptyHistory);
+            initConnectionsChart({ labels: ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"], active: [0,0,0,0,0,0,0] });
+            return;
+        }
+
+        // --- Escenario 3: El análisis se completó exitosamente ---
         document.getElementById("lbl-health-score").innerText = devMeta.health_score;
         document.getElementById("lbl-critical-count").innerText = devMeta.stats.critical;
         document.getElementById("lbl-warning-count").innerText = devMeta.stats.warning;
