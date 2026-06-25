@@ -87,18 +87,28 @@ class iHealthClient:
                 
             response.raise_for_status()
             
-            data = response.json()
-            qkview_id = data.get("qkview_id")
+            qkview_id = None
             
-            if not qkview_id and "Location" in response.headers:
-                qkview_id = response.headers["Location"].split("/")[-1]
+            # 1. Primero intentamos extraer el ID de la cabecera 'Location' (Estándar en F5 para HTTP 202/201)
+            if "Location" in response.headers:
+                location_val = response.headers["Location"]
+                print(f"[iHealth] Cabecera 'Location' encontrada: {location_val}")
+                qkview_id = location_val.split("/")[-1]
+                print(f"[iHealth] ID extraído de la cabecera Location: {qkview_id}")
                 
+            # 2. Si no está en 'Location', intentamos leer el cuerpo JSON de forma segura
             if not qkview_id:
-                qkview_id = data.get("id") or data.get("qkviewId")
-                
+                try:
+                    data = response.json()
+                    print(f"[iHealth] Respuesta JSON de F5 decodificada: {data}")
+                    qkview_id = data.get("qkview_id") or data.get("id") or data.get("qkviewId")
+                except Exception as json_err:
+                    print(f"[iHealth] No se pudo decodificar el cuerpo de respuesta como JSON: {json_err}")
+                    print(f"[iHealth] Contenido bruto del cuerpo de respuesta: {response.text}")
+            
             if not qkview_id:
-                print(f"[iHealth] ADVERTENCIA: No se pudo encontrar el QKView ID directo en el JSON. Payload: {data}")
-                raise ValueError(f"Could not determine QKView ID. Response: {data}")
+                print(f"[iHealth] ERROR: No se pudo determinar el ID del QKView. Headers: {response.headers}. Body: {response.text}")
+                raise ValueError(f"No se pudo determinar el QKView ID a partir de la respuesta de F5. HTTP Code: {response.status_code}")
                 
             print(f"[iHealth] QKView subido exitosamente a F5. ID Asignado: {qkview_id}")
             return qkview_id
