@@ -54,6 +54,42 @@ def save_devices(devices: Dict):
     with open(DEVICES_FILE, "w", encoding="utf-8") as f:
         json.dump(devices, f, indent=4, ensure_ascii=False)
 
+# Helper: Resolve iHealth QKView ID from local devices registry or by querying historical uploaded list
+def resolve_qkview_id(hostname: str) -> str:
+    devices = load_devices()
+    dev = devices.get(hostname, {})
+    
+    # 1. Check if qkview_id is already in cache
+    if "qkview_id" in dev and dev["qkview_id"]:
+        return dev["qkview_id"]
+        
+    # 2. Query historical QKViews list from iHealth API to match the hostname
+    try:
+        qkviews_data = ihealth_client.get_qkviews_list()
+        qkviews = []
+        if isinstance(qkviews_data, dict):
+            qkview_node = qkviews_data.get("qkview") or qkviews_data.get("qkviews", {}).get("qkview", [])
+            qkviews = qkview_node if isinstance(qkview_node, list) else [qkview_node] if qkview_node else []
+        elif isinstance(qkviews_data, list):
+            qkviews = qkviews_data
+            
+        for qk in qkviews:
+            fname = qk.get("file_name", "") or qk.get("description", "") or ""
+            if hostname.lower() in fname.lower():
+                qk_id = qk.get("id") or qk.get("qkview_id") or qk.get("qkviewId")
+                if qk_id:
+                    # Update local registry so we don't list again
+                    if hostname not in devices:
+                        devices[hostname] = {}
+                    devices[hostname]["qkview_id"] = str(qk_id)
+                    save_devices(devices)
+                    print(f"[resolve_qkview_id] Resolved and saved QKView ID '{qk_id}' for '{hostname}' from F5 list.")
+                    return str(qk_id)
+    except Exception as e:
+        print(f"Error resolving qkview_id for {hostname}: {e}")
+        
+    return None
+
 # Background Task to process QKView in iHealth API
 def process_qkview_task(file_path: str, hostname: str):
     try:
@@ -141,6 +177,7 @@ def process_qkview_task(file_path: str, hostname: str):
             "last_scan": time.strftime("%Y-%m-%d %H:%M:%S"),
             "status": "completed",
             "health_score": health_score,
+            "qkview_id": qkview_id,
             "stats": {
                 "critical": critical_count,
                 "warning": warning_count,
@@ -240,6 +277,94 @@ async def get_diagnostics(hostname: str):
 @app.get("/health")
 async def health():
     return {"status": "healthy", "time": time.time()}
+
+# Endpoints: QKView Files & Commands Logs Explorer
+@app.get("/api/devices/{hostname}/files", summary="Get list of files contained in the QKView")
+async def get_device_files(hostname: str):
+    qkview_id = resolve_qkview_id(hostname)
+    if not qkview_id:
+        raise HTTPException(status_code=404, detail=f"No se pudo resolver el QKView ID para el dispositivo '{hostname}'.")
+    try:
+        files_data = ihealth_client.get_qkview_files(qkview_id)
+        
+        # Normalizar respuesta XML-a-JSON a lista plana de diccionarios
+        files_list = []
+        if isinstance(files_data, dict):
+            file_node = files_data.get("file") or files_data.get("files", {}).get("file", [])
+            files_list = file_node if isinstance(file_node, list) else [file_node] if file_node else []
+        elif isinstance(files_data, list):
+            files_list = files_data
+            
+        normalized = []
+        for f in files_list:
+            f_id = f.get("id") or f.get("id_hash") or f.get("hash")
+            f_name = f.get("name") or f.get("path") or f.get("file_path") or ""
+            if f_id and f_name:
+                normalized.append({"id": str(f_id), "name": str(f_name)})
+                
+        # Ordenar alfabéticamente por nombre
+        normalized.sort(key=lambda x: x["name"])
+        return normalized
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener archivos de iHealth: {str(e)}")
+
+@app.get("/api/devices/{hostname}/files/{file_id}", summary="Get content of a specific log file in the QKView")
+async def get_device_file_content(hostname: str, file_id: str):
+    qkview_id = resolve_qkview_id(hostname)
+    if not qkview_id:
+        raise HTTPException(status_code=404, detail=f"No se pudo resolver el QKView ID para el dispositivo '{hostname}'.")
+    try:
+        content = ihealth_client.get_qkview_file_content(qkview_id, file_id)
+        try:
+            text_content = content.decode("utf-8")
+        except UnicodeDecodeError:
+            text_content = content.decode("latin-1", errors="replace")
+        return {"content": text_content}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al descargar contenido del archivo: {str(e)}")
+
+@app.get("/api/devices/{hostname}/commands", summary="Get list of TMSH commands executed in the QKView")
+async def get_device_commands(hostname: str):
+    qkview_id = resolve_qkview_id(hostname)
+    if not qkview_id:
+        raise HTTPException(status_code=404, detail=f"No se pudo resolver el QKView ID para el dispositivo '{hostname}'.")
+    try:
+        commands_data = ihealth_client.get_qkview_commands(qkview_id)
+        
+        # Normalizar respuesta XML-a-JSON a lista plana
+        commands_list = []
+        if isinstance(commands_data, dict):
+            cmd_node = commands_data.get("command") or commands_data.get("commands", {}).get("command", [])
+            commands_list = cmd_node if isinstance(cmd_node, list) else [cmd_node] if cmd_node else []
+        elif isinstance(commands_data, list):
+            commands_list = commands_data
+            
+        normalized = []
+        for c in commands_list:
+            c_id = c.get("id") or c.get("id_hash") or c.get("hash")
+            c_name = c.get("name") or c.get("command_name") or c.get("command") or ""
+            if c_id and c_name:
+                normalized.append({"id": str(c_id), "name": str(c_name)})
+                
+        normalized.sort(key=lambda x: x["name"])
+        return normalized
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener comandos de iHealth: {str(e)}")
+
+@app.get("/api/devices/{hostname}/commands/{command_id}", summary="Get content of a specific command output in the QKView")
+async def get_device_command_content(hostname: str, command_id: str):
+    qkview_id = resolve_qkview_id(hostname)
+    if not qkview_id:
+        raise HTTPException(status_code=404, detail=f"No se pudo resolver el QKView ID para el dispositivo '{hostname}'.")
+    try:
+        content = ihealth_client.get_qkview_command_content(qkview_id, command_id)
+        try:
+            text_content = content.decode("utf-8")
+        except UnicodeDecodeError:
+            text_content = content.decode("latin-1", errors="replace")
+        return {"content": text_content}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al descargar contenido del comando: {str(e)}")
 
 # Mount static frontend files
 # When deployed on Railway, the frontend is inside the backend directory

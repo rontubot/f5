@@ -175,6 +175,7 @@ body.dark-mode {
     flex-grow: 1;
     height: 100vh;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 40px;
     display: flex;
     flex-direction: column;
@@ -234,6 +235,11 @@ body.dark-mode {
     font-weight: 500;
     outline: none;
     cursor: pointer;
+}
+
+.device-select select option {
+    background-color: hsl(220, 25%, 10%);
+    color: hsl(210, 40%, 98%);
 }
 
 .btn-primary {
@@ -378,6 +384,11 @@ body.dark-mode {
     display: flex;
     flex-direction: column;
     gap: 20px;
+    min-width: 0;
+}
+
+.panel-right {
+    min-width: 0;
 }
 
 .panel-header {
@@ -671,7 +682,7 @@ body.dark-mode {
 
 .profile-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 20px;
     margin-top: 20px;
 }
@@ -965,4 +976,13 @@ body.dark-mode {
 .badge-critical { background-color: hsla(0, 84%, 60%, 0.15); color: var(--color-critical); border: 1px solid hsla(0, 84%, 60%, 0.35); }
 .badge-warning { background-color: hsla(40, 90%, 55%, 0.15); color: var(--color-warning); border: 1px solid hsla(40, 90%, 55%, 0.35); }
 .badge-info { background-color: hsla(200, 95%, 55%, 0.15); color: var(--color-info); border: 1px solid hsla(200, 95%, 55%, 0.35); }
+
+/* Highlight styling for log viewer text search matches */
+.highlight {
+    background-color: hsla(50, 100%, 50%, 0.6) !important;
+    color: #000 !important;
+    border-radius: 2px;
+    font-weight: bold;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+}
 

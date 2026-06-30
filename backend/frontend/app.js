@@ -53,6 +53,13 @@ let currentHeuristics = [];
 let cveSearchQuery = "";
 let cveSeverityFilter = "all";
 let selectedHeuristicId = null;
+let currentLogType = "files";
+let allLogItems = [];
+let selectedLogItemId = null;
+let selectedLogItemName = "";
+let logSearchQuery = "";
+let logTextSearchQuery = "";
+let rawLogContent = "";
 
 // --- 2. Inicialización del Dashboard ---
 document.addEventListener("DOMContentLoaded", () => {
@@ -60,6 +67,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupTabs();
     setupSettingsPage();
     setupCveFilters();
+    setupLogExplorerEvents();
     // Mantener la página sincronizada en vivo de forma constante cada 30 segundos
     setInterval(() => {
         if (isBackendOnline) {
@@ -229,6 +237,26 @@ async function loadRealDeviceData(hostname) {
 
         // Renderizar selector de hitos/heurísticas en pestaña Hitos
         renderHeuristicsSelector();
+
+        // Limpiar logs y volver a cargarlos para el nuevo dispositivo
+        allLogItems = [];
+        selectedLogItemId = null;
+        selectedLogItemName = "";
+        rawLogContent = "";
+        const logContainer = document.getElementById("log-viewer-container");
+        if (logContainer) {
+            logContainer.innerHTML = `
+                <i class="fa-solid fa-file-lines fa-3x" style="margin-bottom: 15px; color: var(--border-color);"></i>
+                <p>Seleccione un archivo de log o comando de la lista de la izquierda para ver su contenido aquí.</p>
+            `;
+            document.getElementById("log-viewer-title").innerText = "Visor de Logs";
+        }
+        
+        // Si estamos actualmente en la pestaña de logs, forzar recarga
+        const btnLogs = document.getElementById("btn-logs");
+        if (btnLogs && btnLogs.classList.contains("active")) {
+            loadDeviceLogItems();
+        }
 
         // Actualizar curl en Settings
         const curlPre = document.getElementById("curl-code-command");
@@ -465,6 +493,7 @@ function setupTabs() {
         { btn: "btn-overview", page: "page-overview" },
         { btn: "btn-cves", page: "page-cves" },
         { btn: "btn-heuristics", page: "page-heuristics" },
+        { btn: "btn-logs", page: "page-logs" },
         { btn: "btn-settings", page: "page-settings" }
     ];
     
@@ -485,6 +514,11 @@ function setupTabs() {
                 btnEl.classList.add("active");
                 const pageEl = document.getElementById(tab.page);
                 if (pageEl) pageEl.classList.remove("hidden");
+                
+                // Cargar ítems de log si se selecciona esa pestaña
+                if (tab.page === "page-logs") {
+                    loadDeviceLogItems();
+                }
                 
                 // Redimensionar gráficos para evitar problemas de ancho al volver
                 if (tab.page === "page-overview") {
@@ -837,4 +871,221 @@ function formatFixedVersions(fixedObj) {
         return verStr;
     }).join(", ");
 }
+
+// --- 9. Explorador de Logs e Evidencias de QKView ---
+async function loadDeviceLogItems() {
+    const hostname = document.getElementById("lbl-hostname").innerText;
+    if (!hostname || hostname === "Cargando..." || hostname === "Error") return;
+    
+    const listContainer = document.getElementById("log-items-list");
+    if (!listContainer) return;
+    
+    listContainer.innerHTML = `<div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i> Cargando lista...</div>`;
+    
+    const btnDownload = document.getElementById("btn-download-log");
+    if (btnDownload) btnDownload.disabled = true;
+    
+    try {
+        const endpoint = currentLogType === "files" ? "files" : "commands";
+        const response = await fetch(`${BACKEND_API_URL}/api/devices/${hostname}/${endpoint}`);
+        if (!response.ok) throw new Error("Error en respuesta de API");
+        
+        allLogItems = await response.json();
+        renderLogItems();
+    } catch (err) {
+        console.error("Error al cargar ítems de logs de F5:", err);
+        listContainer.innerHTML = `
+            <div style="color: var(--color-critical); text-align: center; padding: 20px 10px; font-size: 13px;">
+                <i class="fa-solid fa-triangle-exclamation"></i> Error de conexión con el backend
+            </div>
+        `;
+    }
+}
+
+function renderLogItems() {
+    const listContainer = document.getElementById("log-items-list");
+    if (!listContainer) return;
+    
+    listContainer.innerHTML = "";
+    const query = logSearchQuery.trim().toLowerCase();
+    const filtered = allLogItems.filter(item => item.name.toLowerCase().includes(query));
+    
+    if (filtered.length === 0) {
+        listContainer.innerHTML = `<div class="loading-spinner"><i class="fa-solid fa-info-circle"></i> Ningún archivo coincide.</div>`;
+        return;
+    }
+    
+    filtered.forEach(item => {
+        const el = document.createElement("div");
+        el.className = `selector-alert-item`;
+        if (selectedLogItemId === item.id) {
+            el.classList.add("selected");
+        }
+        
+        el.innerHTML = `
+            <div class="selector-alert-item-title" style="max-width: 100%;" title="${item.name}">${item.name}</div>
+        `;
+        
+        el.addEventListener("click", () => {
+            document.querySelectorAll("#log-items-list .selector-alert-item").forEach(x => x.classList.remove("selected"));
+            el.classList.add("selected");
+            selectedLogItemId = item.id;
+            selectedLogItemName = item.name;
+            loadLogItemContent(item);
+        });
+        
+        listContainer.appendChild(el);
+    });
+}
+
+async function loadLogItemContent(item) {
+    const hostname = document.getElementById("lbl-hostname").innerText;
+    const viewerContainer = document.getElementById("log-viewer-container");
+    if (!viewerContainer) return;
+    
+    viewerContainer.innerHTML = `<div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin fa-2x"></i> Cargando contenido...</div>`;
+    document.getElementById("log-viewer-title").innerText = item.name;
+    
+    const btnDownload = document.getElementById("btn-download-log");
+    if (btnDownload) btnDownload.disabled = true;
+    
+    try {
+        const endpoint = currentLogType === "files" ? "files" : "commands";
+        const response = await fetch(`${BACKEND_API_URL}/api/devices/${hostname}/${endpoint}/${item.id}`);
+        if (!response.ok) throw new Error("Error en respuesta de API");
+        
+        const data = await response.json();
+        rawLogContent = data.content || "";
+        
+        if (btnDownload) btnDownload.disabled = false;
+        renderLogContent();
+    } catch (err) {
+        console.error("Error al descargar contenido del log:", err);
+        viewerContainer.innerHTML = `
+            <div style="color: var(--color-critical); text-align: center; padding: 40px 20px;">
+                <i class="fa-solid fa-circle-xmark fa-3x" style="margin-bottom: 10px;"></i>
+                <p style="font-weight: 600;">Error al Descargar Contenido</p>
+                <p style="font-size: 13px; margin-top: 5px;">El archivo puede ser binario o exceder el tamaño límite permitido por iHealth.</p>
+            </div>
+        `;
+    }
+}
+
+function renderLogContent() {
+    const viewerContainer = document.getElementById("log-viewer-container");
+    if (!viewerContainer) return;
+    
+    if (!rawLogContent) {
+        viewerContainer.innerHTML = `<div style="padding: 40px; color: var(--text-muted);"><i class="fa-solid fa-file-excel fa-2x" style="margin-bottom:10px;"></i> El archivo de log está vacío.</div>`;
+        return;
+    }
+    
+    let escaped = rawLogContent.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    
+    // Aplicar resaltado si existe búsqueda interna
+    if (logTextSearchQuery.trim()) {
+        const escQuery = logTextSearchQuery.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const regex = new RegExp(`(${escQuery})`, 'gi');
+        escaped = escaped.replace(regex, '<span class="highlight">$1</span>');
+    }
+    
+    const lines = escaped.split("\n");
+    const processedLines = lines.map(line => {
+        if (line.includes("ERR") || line.includes("ERROR") || line.includes("crit") || line.includes("CRITICAL")) {
+            return `<span style="color: var(--color-critical); font-weight: 500;">${line}</span>`;
+        } else if (line.includes("WARN") || line.includes("WARNING")) {
+            return `<span style="color: var(--color-warning); font-weight: 500;">${line}</span>`;
+        } else if (line.includes("info") || line.includes("INFO")) {
+            return `<span style="color: var(--text-secondary);">${line}</span>`;
+        }
+        return line;
+    });
+    
+    viewerContainer.innerHTML = `
+        <pre class="log-output" style="max-height: 500px; height: 500px; text-align: left; width: 100%; margin-top: 0; font-size: 12px; border: 1px solid var(--border-color);">${processedLines.join("\n")}</pre>
+    `;
+}
+
+function setupLogExplorerEvents() {
+    const btnFiles = document.getElementById("btn-logtype-files");
+    const btnCmds = document.getElementById("btn-logtype-commands");
+    
+    if (btnFiles && btnCmds) {
+        btnFiles.addEventListener("click", () => {
+            if (currentLogType === "files") return;
+            currentLogType = "files";
+            btnFiles.classList.add("active");
+            btnCmds.classList.remove("active");
+            allLogItems = [];
+            selectedLogItemId = null;
+            selectedLogItemName = "";
+            rawLogContent = "";
+            document.getElementById("log-viewer-title").innerText = "Visor de Logs";
+            const logContainer = document.getElementById("log-viewer-container");
+            if (logContainer) {
+                logContainer.innerHTML = `
+                    <i class="fa-solid fa-file-lines fa-3x" style="margin-bottom: 15px; color: var(--border-color);"></i>
+                    <p>Seleccione un archivo de log de la lista de la izquierda para ver su contenido aquí.</p>
+                `;
+            }
+            loadDeviceLogItems();
+        });
+        
+        btnCmds.addEventListener("click", () => {
+            if (currentLogType === "commands") return;
+            currentLogType = "commands";
+            btnCmds.classList.add("active");
+            btnFiles.classList.remove("active");
+            allLogItems = [];
+            selectedLogItemId = null;
+            selectedLogItemName = "";
+            rawLogContent = "";
+            document.getElementById("log-viewer-title").innerText = "Visor de Comandos";
+            const logContainer = document.getElementById("log-viewer-container");
+            if (logContainer) {
+                logContainer.innerHTML = `
+                    <i class="fa-solid fa-terminal fa-3x" style="margin-bottom: 15px; color: var(--border-color);"></i>
+                    <p>Seleccione un comando de la lista de la izquierda para ver su salida aquí.</p>
+                `;
+            }
+            loadDeviceLogItems();
+        });
+    }
+    
+    const logSearch = document.getElementById("log-search-input");
+    if (logSearch) {
+        logSearch.addEventListener("input", (e) => {
+            logSearchQuery = e.target.value;
+            renderLogItems();
+        });
+    }
+    
+    const textSearch = document.getElementById("log-text-search");
+    if (textSearch) {
+        textSearch.addEventListener("input", (e) => {
+            logTextSearchQuery = e.target.value;
+            if (rawLogContent) {
+                renderLogContent();
+            }
+        });
+    }
+    
+    const btnDownload = document.getElementById("btn-download-log");
+    if (btnDownload) {
+        btnDownload.addEventListener("click", () => {
+            if (!rawLogContent) return;
+            const blob = new Blob([rawLogContent], { type: "text/plain;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            let cleanName = selectedLogItemName.replace(/[^a-zA-Z0-9.-]/g, "_");
+            a.download = `${cleanName}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    }
+}
+
 

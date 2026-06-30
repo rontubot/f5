@@ -13,7 +13,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="styles.css?v=1.0.2">
+    <link rel="stylesheet" href="styles.css?v=1.0.3">
 </head>
 <body class="dark-mode">
     <div class="app-container">
@@ -35,6 +35,9 @@
                 </a>
                 <a href="#" class="menu-item" id="btn-heuristics">
                     <i class="fa-solid fa-stethoscope"></i> Diagnósticos Hitos
+                </a>
+                <a href="#" class="menu-item" id="btn-logs">
+                    <i class="fa-solid fa-terminal"></i> Explorador de Logs
                 </a>
                 <a href="#" class="menu-item" id="btn-settings">
                     <i class="fa-solid fa-sliders"></i> Ajustes de Flota
@@ -301,6 +304,52 @@
                 </div>
             </div>
 
+            <!-- Tab Page: Logs & Commands Explorer -->
+            <div id="page-logs" class="tab-page hidden">
+                <div class="dashboard-body">
+                    <!-- Left: selector list of files/commands -->
+                    <div class="panel-left glass-card" style="min-height: 500px; display: flex; flex-direction: column;">
+                        <div class="panel-header" style="flex-direction: column; align-items: stretch; border-bottom: none; padding-bottom: 0;">
+                            <h2>Explorador de QKView</h2>
+                            <!-- Sub-tabs: Files vs Commands -->
+                            <div class="filter-pills margin-top-20" style="width: 100%;">
+                                <button class="pill-btn active" id="btn-logtype-files" style="flex-grow: 1; text-align: center;">Archivos de Log</button>
+                                <button class="pill-btn" id="btn-logtype-commands" style="flex-grow: 1; text-align: center;">Comandos TMSH</button>
+                            </div>
+                            <!-- Search box -->
+                            <div class="search-box margin-top-20" style="max-width: 100%; width: 100%;">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="log-search-input" placeholder="Buscar archivo o comando...">
+                            </div>
+                        </div>
+                        <div class="alerts-list-container margin-top-20" id="log-items-list" style="flex-grow: 1; max-height: 400px; overflow-y: auto;">
+                            <div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i> Cargando...</div>
+                        </div>
+                    </div>
+
+                    <!-- Right: actual log file viewer -->
+                    <div class="panel-right glass-card" id="log-viewer-panel" style="min-height: 500px; display: flex; flex-direction: column;">
+                        <div class="panel-header" style="justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                            <h2 id="log-viewer-title">Visor de Logs</h2>
+                            <div style="display: flex; gap: 12px; align-items: center;">
+                                <!-- Live text search inside log -->
+                                <div class="search-box" style="padding: 6px 12px; max-width: 250px;">
+                                    <i class="fa-solid fa-search"></i>
+                                    <input type="text" id="log-text-search" placeholder="Buscar en texto...">
+                                </div>
+                                <button class="btn-primary" id="btn-download-log" style="padding: 8px 16px; font-size: 13px;" disabled>
+                                    <i class="fa-solid fa-download"></i> Descargar
+                                </button>
+                            </div>
+                        </div>
+                        <div class="evidence-content" id="log-viewer-container" style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; color: var(--text-muted); text-align: center; padding: 20px; min-height: 380px;">
+                            <i class="fa-solid fa-file-lines fa-3x" style="margin-bottom: 15px; color: var(--border-color);"></i>
+                            <p>Seleccione un archivo de log o comando de la lista de la izquierda para ver su contenido aquí.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Tab Page: Settings / Fleet Management -->
             <div id="page-settings" class="tab-page hidden">
                 <div class="settings-grid">
@@ -375,6 +424,6 @@
     </div>
     
     <!-- Custom JS -->
-    <script src="app.js?v=1.0.2"></script>
+    <script src="app.js?v=1.0.3"></script>
 </body>
 </html>

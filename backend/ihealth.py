@@ -178,3 +178,74 @@ class iHealthClient:
         
         print(f"[iHealth] Reporte de diagnóstico descargado con éxito para el ID: {qkview_id}")
         return response.json()
+
+    def get_qkviews_list(self):
+        """Retrieve list of all uploaded QKViews from iHealth"""
+        print("[iHealth] Descargando listado histórico de QKViews de F5...")
+        token = self.get_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "User-Agent": "iHealthWatcherBackend/1.0"
+        }
+        url = f"{API_BASE_URL}/qkviews"
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
+    def get_qkview_files(self, qkview_id):
+        """Retrieve files list contained in a QKView"""
+        print(f"[iHealth] Descargando lista de archivos para el ID: {qkview_id}...")
+        token = self.get_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "User-Agent": "iHealthWatcherBackend/1.0"
+        }
+        url = f"{API_BASE_URL}/qkviews/{qkview_id}/files"
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
+    def get_qkview_file_content(self, qkview_id, file_id):
+        """Download binary content of a specific file in the QKView"""
+        print(f"[iHealth] Descargando contenido de archivo '{file_id}' para el ID: {qkview_id}...")
+        token = self.get_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/octet-stream",
+            "User-Agent": "iHealthWatcherBackend/1.0"
+        }
+        url = f"{API_BASE_URL}/qkviews/{qkview_id}/files/{file_id}"
+        response = requests.get(url, headers=headers, timeout=45)
+        response.raise_for_status()
+        return response.content
+
+    def get_qkview_commands(self, qkview_id):
+        """Retrieve tmsh commands list executed in a QKView"""
+        print(f"[iHealth] Descargando lista de comandos para el ID: {qkview_id}...")
+        token = self.get_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "User-Agent": "iHealthWatcherBackend/1.0"
+        }
+        url = f"{API_BASE_URL}/qkviews/{qkview_id}/commands"
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
+    def get_qkview_command_content(self, qkview_id, command_id):
+        """Download binary content of a specific command in the QKView"""
+        print(f"[iHealth] Descargando contenido de comando '{command_id}' para el ID: {qkview_id}...")
+        token = self.get_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/octet-stream",
+            "User-Agent": "iHealthWatcherBackend/1.0"
+        }
+        url = f"{API_BASE_URL}/qkviews/{qkview_id}/commands/{command_id}"
+        response = requests.get(url, headers=headers, timeout=45)
+        response.raise_for_status()
+        return response.content
+
