@@ -49,10 +49,17 @@ const MOCK_DEVICES_DATA = {
 let activeFilter = "all";
 let isBackendOnline = false;
 let currentDevices = [];
+let currentHeuristics = [];
+let cveSearchQuery = "";
+let cveSeverityFilter = "all";
+let selectedHeuristicId = null;
 
 // --- 2. Inicialización del Dashboard ---
 document.addEventListener("DOMContentLoaded", () => {
     checkBackendConnection();
+    setupTabs();
+    setupSettingsPage();
+    setupCveFilters();
     // Mantener la página sincronizada en vivo de forma constante cada 30 segundos
     setInterval(() => {
         if (isBackendOnline) {
@@ -204,63 +211,30 @@ async function loadRealDeviceData(hostname) {
         const response = await fetch(`${BACKEND_API_URL}/api/diagnostics/${hostname}`);
         const diagData = await response.json();
         
-        // Parsear heurísticas - Estructura real de F5: diagnostics -> diagnostic
-        const rawHits = diagData.diagnostics?.diagnostic || [];
-        const hits = Array.isArray(rawHits) ? rawHits : (rawHits ? [rawHits] : []);
+        // Parsear y guardar metadatos de sistema
+        const versionData = diagData.version || {};
+        const sha1 = diagData.sha1 || "";
+        renderSystemProfile(versionData, sha1);
 
-        // Filtrar solo las que coinciden activamente con este dispositivo (match === true)
-        const matchedHits = hits.filter(hit => hit.run_data?.match === true);
+        // Procesar heurísticas y guardarlas en variable global
+        currentHeuristics = processDiagnosticsData(diagData);
 
-        // Adaptar formato real de iHealth al esquema de la interfaz
-        const heuristics = matchedHits.map(hit => {
-            const results = hit.results || {};
-            const importance = (hit.run_data?.h_importance || "info").toLowerCase();
-            
-            // Mapear importancia de F5 a los colores/gravedad de la interfaz
-            let uiSeverity = "info";
-            if (importance === "high" || importance === "critical") {
-                uiSeverity = "critical";
-            } else if (importance === "medium") {
-                uiSeverity = "warning";
-            }
-            
-            // Concatenar códigos CVE si existen
-            const cvesList = results.h_cve_ids || [];
-            const cveString = cvesList.length > 0 ? cvesList.join(", ") : null;
-            
-            // Obtener el enlace al artículo de soporte oficial de F5 (AskF5)
-            const solutionLinks = results.solution || [];
-            const linkUrl = solutionLinks.length > 0 ? solutionLinks[0].value : "";
-            let solutionText = results.h_action || "";
-            if (linkUrl) {
-                solutionText += `\n\nReferencia oficial AskF5: ${linkUrl}`;
-            }
-            
-            // Determinar una categoría basada en el ID o título para mayor orden visual
-            let category = "Tráfico Local (LTM)";
-            const hitName = hit.name || "";
-            if (hitName.startsWith("H")) {
-                category = "Configuración GTM/DNS";
-            } else if (cveString || results.h_header?.toLowerCase().includes("vulnerability") || results.h_header?.toLowerCase().includes("cve")) {
-                category = "Seguridad (CVE)";
-            } else if (results.h_header?.toLowerCase().includes("profile") || results.h_header?.toLowerCase().includes("tcp")) {
-                category = "Perfiles de Protocolo";
-            } else {
-                category = "Optimización de Sistema";
-            }
-            
-            return {
-                id: hit.name || results.h_name || "N/A",
-                severity: uiSeverity,
-                title: results.h_header || "Alerta sin título",
-                category: category,
-                cve: cveString,
-                description: results.h_summary || "Sin descripción detallada.",
-                solution: solutionText || "Consulte el artículo oficial de F5."
-            };
-        });
+        // Renderizar heurísticas en Vista General
+        renderHeuristics(currentHeuristics);
 
-        renderHeuristics(heuristics);
+        // Renderizar CVEs y actualizar KPIs
+        const cveHeuristics = currentHeuristics.filter(h => h.cve !== null);
+        updateCveKpis(cveHeuristics);
+        renderCves();
+
+        // Renderizar selector de hitos/heurísticas en pestaña Hitos
+        renderHeuristicsSelector();
+
+        // Actualizar curl en Settings
+        const curlPre = document.getElementById("curl-code-command");
+        if (curlPre) {
+            curlPre.innerText = `curl -X POST -H "Authorization: Bearer BirraverdePCtoken" -F "qkview=@/ruta/al/archivo.qkview" ${BACKEND_API_URL}/api/upload`;
+        }
 
         // Generar historial de recursos simulados basados en el estado del equipo
         const simulatedHistory = {
@@ -295,15 +269,43 @@ function loadMockData() {
     document.getElementById("lbl-cve-count").innerText = data.stats.cves;
     setProgressRing(data.health_score);
 
-    renderHeuristics(data.heuristics);
+    // Guardar en global
+    currentHeuristics = data.heuristics.map(h => {
+        return {
+            id: h.id,
+            severity: h.severity,
+            importance: h.severity === 'critical' ? 'critical' : h.severity === 'warning' ? 'high' : 'info',
+            title: h.title,
+            category: h.category,
+            cve: h.cve,
+            description: h.description,
+            solution: h.solution,
+            output: h.id === 'H00456' ? [
+                "Matching config: /Common/vs_portal_prod is vulnerable.",
+                "Line 43: client-ssl profile associated.",
+                "WARNING: CVE-2023-46747 vulnerability detected in BIG-IP firmware version 17.5.1.6!"
+            ] : [],
+            fixedInVersions: { version: [{ major: 17, minor: 5, maintenance: 1, point: 7, fix: "" }] }
+        };
+    });
+
+    renderHeuristics(currentHeuristics);
+    
+    const cveHeuristics = currentHeuristics.filter(h => h.cve !== null);
+    updateCveKpis(cveHeuristics);
+    renderCves();
+    
+    renderHeuristicsSelector();
+    renderSystemProfile({ product: "BIG-IP (Demo)", version: "17.5.1.6", edition: "Virtual Edition", built: "20231102" }, "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+
     initResourceChart(data.resourceHistory);
     initConnectionsChart(data.connectionsHistory);
 
-    // Event listeners para filtros
-    document.getElementById("btn-filter-all").onclick = () => renderHeuristics(data.heuristics);
-    document.getElementById("btn-filter-critical").onclick = () => renderHeuristics(data.heuristics.filter(h=>h.severity==='critical'));
-    document.getElementById("btn-filter-warning").onclick = () => renderHeuristics(data.heuristics.filter(h=>h.severity==='warning'));
-    document.getElementById("btn-filter-info").onclick = () => renderHeuristics(data.heuristics.filter(h=>h.severity==='info'));
+    // Event listeners para filtros de la vista general
+    document.getElementById("btn-filter-all").onclick = () => renderHeuristics(currentHeuristics);
+    document.getElementById("btn-filter-critical").onclick = () => renderHeuristics(currentHeuristics.filter(h=>h.severity==='critical'));
+    document.getElementById("btn-filter-warning").onclick = () => renderHeuristics(currentHeuristics.filter(h=>h.severity==='warning'));
+    document.getElementById("btn-filter-info").onclick = () => renderHeuristics(currentHeuristics.filter(h=>h.severity==='info'));
 }
 
 // --- 3. Renderizadores Comunes de Interfaz ---
@@ -456,3 +458,383 @@ function simulateScan() {
         }, 1500);
     }, 1500);
 }
+
+// --- 5. Lógica de Pestañas y Vistas ---
+function setupTabs() {
+    const tabs = [
+        { btn: "btn-overview", page: "page-overview" },
+        { btn: "btn-cves", page: "page-cves" },
+        { btn: "btn-heuristics", page: "page-heuristics" },
+        { btn: "btn-settings", page: "page-settings" }
+    ];
+    
+    tabs.forEach(tab => {
+        const btnEl = document.getElementById(tab.btn);
+        if (btnEl) {
+            btnEl.addEventListener("click", (e) => {
+                e.preventDefault();
+                // Ocultar todas las páginas y desactivar enlaces
+                tabs.forEach(t => {
+                    const el = document.getElementById(t.btn);
+                    if (el) el.classList.remove("active");
+                    const pg = document.getElementById(t.page);
+                    if (pg) pg.classList.add("hidden");
+                });
+                
+                // Activar actual
+                btnEl.classList.add("active");
+                const pageEl = document.getElementById(tab.page);
+                if (pageEl) pageEl.classList.remove("hidden");
+                
+                // Redimensionar gráficos para evitar problemas de ancho al volver
+                if (tab.page === "page-overview") {
+                    window.dispatchEvent(new Event('resize'));
+                }
+            });
+        }
+    });
+}
+
+// --- 6. Lógica de CVEs y Filtros ---
+function setupCveFilters() {
+    const searchInput = document.getElementById("cve-search-input");
+    const severityFilter = document.getElementById("cve-severity-filter");
+    
+    if (searchInput) {
+        searchInput.addEventListener("input", (e) => {
+            cveSearchQuery = e.target.value.toLowerCase();
+            renderCves();
+        });
+    }
+    
+    if (severityFilter) {
+        severityFilter.addEventListener("change", (e) => {
+            cveSeverityFilter = e.target.value;
+            renderCves();
+        });
+    }
+}
+
+function processDiagnosticsData(diagData) {
+    const rawHits = diagData.diagnostics?.diagnostic || [];
+    const hits = Array.isArray(rawHits) ? rawHits : (rawHits ? [rawHits] : []);
+    const matchedHits = hits.filter(hit => hit.run_data?.match === true);
+    
+    return matchedHits.map(hit => {
+        const results = hit.results || {};
+        const importance = (hit.run_data?.h_importance || "info").toLowerCase();
+        
+        let uiSeverity = "info";
+        if (importance === "high" || importance === "critical") {
+            uiSeverity = "critical";
+        } else if (importance === "medium") {
+            uiSeverity = "warning";
+        }
+        
+        const cvesList = results.h_cve_ids || [];
+        const cveString = cvesList.length > 0 ? cvesList.join(", ") : null;
+        
+        const solutionLinks = results.solution || [];
+        const linkUrl = solutionLinks.length > 0 ? solutionLinks[0].value : "";
+        let solutionText = results.h_action || "";
+        if (linkUrl) {
+            solutionText += `\n\nReferencia oficial AskF5: ${linkUrl}`;
+        }
+        
+        let category = "Tráfico Local (LTM)";
+        const hitName = hit.name || "";
+        if (hitName.startsWith("H")) {
+            category = "Configuración GTM/DNS";
+        } else if (cveString || results.h_header?.toLowerCase().includes("vulnerability") || results.h_header?.toLowerCase().includes("cve")) {
+            category = "Seguridad (CVE)";
+        } else if (results.h_header?.toLowerCase().includes("profile") || results.h_header?.toLowerCase().includes("tcp")) {
+            category = "Perfiles de Protocolo";
+        } else {
+            category = "Optimización de Sistema";
+        }
+        
+        return {
+            id: hit.name || results.h_name || "N/A",
+            severity: uiSeverity,
+            importance: importance,
+            title: results.h_header || "Alerta sin título",
+            category: category,
+            cve: cveString,
+            description: results.h_summary || "Sin descripción detallada.",
+            solution: solutionText || "Consulte el artículo oficial de F5.",
+            output: hit.output || [],
+            fixedInVersions: hit.fixedInVersions || {}
+        };
+    });
+}
+
+function renderCves() {
+    const cveContainer = document.getElementById("cve-alerts-list");
+    if (!cveContainer) return;
+    
+    const cveHeuristics = currentHeuristics.filter(h => h.cve !== null);
+    
+    const filteredCves = cveHeuristics.filter(item => {
+        const matchesSearch = item.cve.toLowerCase().includes(cveSearchQuery) || 
+                              item.title.toLowerCase().includes(cveSearchQuery) || 
+                              item.description.toLowerCase().includes(cveSearchQuery);
+        
+        let matchesSeverity = true;
+        if (cveSeverityFilter !== "all") {
+            if (cveSeverityFilter === "medium") {
+                matchesSeverity = (item.severity === "warning" || item.severity === "info");
+            } else {
+                matchesSeverity = (item.severity === cveSeverityFilter);
+            }
+        }
+        return matchesSearch && matchesSeverity;
+    });
+    
+    cveContainer.innerHTML = "";
+    
+    if (filteredCves.length === 0) {
+        cveContainer.innerHTML = `<div class="loading-spinner"><i class="fa-solid fa-circle-check" style="color: #10b981;"></i> Sin vulnerabilidades registradas para el criterio actual.</div>`;
+        return;
+    }
+    
+    filteredCves.forEach(item => {
+        const alertItem = document.createElement("div");
+        alertItem.className = `alert-item`;
+        
+        const fixedStr = formatFixedVersions(item.fixedInVersions);
+        
+        alertItem.innerHTML = `
+            <div class="alert-item-header">
+                <div class="alert-title-group">
+                    <span class="severity-indicator severity-${item.severity}"></span>
+                    <span class="alert-title"><strong class="meta-cve" style="margin-right: 8px;">${item.cve}</strong> - ${item.title}</span>
+                </div>
+                <i class="fa-solid fa-chevron-down alert-chevron"></i>
+            </div>
+            <div class="alert-meta">
+                <span><i class="fa-solid fa-folder"></i> ${item.category}</span>
+                <span><i class="fa-solid fa-fingerprint"></i> ID: ${item.id}</span>
+                <span style="color: #3b82f6;"><i class="fa-solid fa-wrench"></i> Corregido en: ${fixedStr}</span>
+            </div>
+            <div class="alert-detail">
+                <div class="alert-detail-title">Descripción del Problema</div>
+                <p>${item.description}</p>
+                <div class="solution-box">
+                    <div class="alert-detail-title">Remediación Propuesta</div>
+                    <p>${item.solution}</p>
+                </div>
+            </div>
+        `;
+        
+        alertItem.addEventListener("click", () => {
+            alertItem.classList.toggle("expanded");
+        });
+        cveContainer.appendChild(alertItem);
+    });
+}
+
+function updateCveKpis(cveHeuristics) {
+    const total = cveHeuristics.length;
+    let critical = 0;
+    let high = 0;
+    let mediumLow = 0;
+    
+    cveHeuristics.forEach(h => {
+        if (h.importance === "critical") critical++;
+        else if (h.importance === "high") high++;
+        else mediumLow++;
+    });
+    
+    const totalEl = document.getElementById("lbl-cve-total");
+    const criticalEl = document.getElementById("lbl-cve-critical");
+    const highEl = document.getElementById("lbl-cve-high");
+    const mediumEl = document.getElementById("lbl-cve-medium");
+    
+    if (totalEl) totalEl.innerText = total;
+    if (criticalEl) criticalEl.innerText = critical;
+    if (highEl) highEl.innerText = high;
+    if (mediumEl) mediumEl.innerText = mediumLow;
+}
+
+// --- 7. Lógica de Explorador de Hitos ---
+function renderSystemProfile(versionData, sha1) {
+    const prodEl = document.getElementById("prof-product");
+    const verEl = document.getElementById("prof-version");
+    const editEl = document.getElementById("prof-edition");
+    const builtEl = document.getElementById("prof-built");
+    const shaEl = document.getElementById("prof-sha");
+    
+    if (prodEl) prodEl.innerText = versionData.product || "BIG-IP";
+    if (verEl) verEl.innerText = versionData.version || "-";
+    if (editEl) editEl.innerText = versionData.edition || "-";
+    if (builtEl) builtEl.innerText = versionData.built || "-";
+    if (shaEl) shaEl.innerText = sha1 || "-";
+}
+
+function renderHeuristicsSelector() {
+    const listContainer = document.getElementById("heuristics-selector-list");
+    if (!listContainer) return;
+    
+    listContainer.innerHTML = "";
+    
+    if (currentHeuristics.length === 0) {
+        listContainer.innerHTML = `<div class="loading-spinner"><i class="fa-solid fa-circle-check" style="color: #10b981;"></i> Sin alertas registradas.</div>`;
+        return;
+    }
+    
+    currentHeuristics.forEach(item => {
+        const selectItem = document.createElement("div");
+        selectItem.className = `selector-alert-item`;
+        if (selectedHeuristicId === item.id) {
+            selectItem.classList.add("selected");
+        }
+        
+        let severityBadgeClass = "badge-info";
+        let severityText = "Info";
+        if (item.severity === "critical") {
+            severityBadgeClass = "badge-critical";
+            severityText = "Crítico";
+        } else if (item.severity === "warning") {
+            severityBadgeClass = "badge-warning";
+            severityText = "Advertencia";
+        }
+        
+        selectItem.innerHTML = `
+            <div class="selector-alert-item-title" title="${item.title}">${item.title}</div>
+            <span class="badge ${severityBadgeClass}">${severityText}</span>
+        `;
+        
+        selectItem.addEventListener("click", () => {
+            document.querySelectorAll(".selector-alert-item").forEach(el => el.classList.remove("selected"));
+            selectItem.classList.add("selected");
+            selectedHeuristicId = item.id;
+            renderHeuristicEvidence(item);
+        });
+        listContainer.appendChild(selectItem);
+    });
+    
+    // Auto-seleccionar el primero si no hay ninguno seleccionado previamente o si cambió el dispositivo
+    const exists = currentHeuristics.some(h => h.id === selectedHeuristicId);
+    if (currentHeuristics.length > 0 && (!selectedHeuristicId || !exists)) {
+        const firstItem = currentHeuristics[0];
+        const firstEl = listContainer.querySelector(".selector-alert-item");
+        if (firstEl) {
+            firstEl.classList.add("selected");
+            selectedHeuristicId = firstItem.id;
+            renderHeuristicEvidence(firstItem);
+        }
+    } else if (selectedHeuristicId) {
+        const activeItem = currentHeuristics.find(h => h.id === selectedHeuristicId);
+        if (activeItem) renderHeuristicEvidence(activeItem);
+    }
+}
+
+function renderHeuristicEvidence(item) {
+    const evidenceContainer = document.getElementById("evidence-container");
+    if (!evidenceContainer) return;
+    
+    let cveBlock = item.cve ? `<span class="meta-cve" style="margin-top: 4px;"><i class="fa-solid fa-bug"></i> ${item.cve}</span>` : "";
+    
+    // Formatear logs/evidencia
+    let logOutputBlock = "";
+    if (item.output && item.output.length > 0) {
+        const rawLogs = item.output.map(line => line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")).join("\n");
+        logOutputBlock = `
+            <div class="alert-detail-title" style="margin-top: 24px;"><i class="fa-solid fa-terminal"></i> Evidencia Coincidente (Líneas de Log / Comandos)</div>
+            <pre class="log-output">${rawLogs}</pre>
+        `;
+    } else {
+        logOutputBlock = `
+            <div class="alert-detail-title" style="margin-top: 24px;"><i class="fa-solid fa-terminal"></i> Evidencia Coincidente</div>
+            <div style="background-color: hsl(222, 25%, 3%); padding: 16px; border-radius: 8px; font-size: 12.5px; color: var(--text-muted); border: 1px solid var(--border-color); margin-top: 10px; width: 100%;">
+                <i class="fa-solid fa-info-circle"></i> Esta heurística se detectó mediante análisis estático de configuración y no produjo líneas de salida de logs específicas en el QKView.
+            </div>
+        `;
+    }
+    
+    evidenceContainer.innerHTML = `
+        <div style="width: 100%; display: flex; flex-direction: column; align-items: flex-start; text-align: left; animation: fadeIn 0.25s ease;">
+            <div style="display: flex; align-items: center; gap: 10px; width: 100%; justify-content: space-between;">
+                <h3 style="font-size: 16px; font-weight: 700; color: var(--text-primary);">${item.title}</h3>
+                <span class="badge badge-${item.severity === 'critical' ? 'critical' : item.severity === 'warning' ? 'warning' : 'info'}">${item.severity}</span>
+            </div>
+            
+            <div class="alert-meta" style="padding-left: 0; margin-top: 8px; flex-wrap: wrap;">
+                <span><i class="fa-solid fa-folder"></i> ${item.category}</span>
+                <span><i class="fa-solid fa-fingerprint"></i> ID: ${item.id}</span>
+                ${cveBlock}
+            </div>
+            
+            <div style="margin-top: 20px; width: 100%;">
+                <div class="alert-detail-title">Descripción Detallada</div>
+                <p style="font-size: 13.5px; color: var(--text-secondary); line-height: 1.6; margin-top: 6px;">${item.description}</p>
+            </div>
+            
+            <div class="solution-box" style="margin-top: 20px; width: 100%;">
+                <div class="alert-detail-title">Solución Recomendada</div>
+                <p style="font-size: 13.5px; color: hsl(145, 40%, 80%); line-height: 1.6; margin-top: 6px; white-space: pre-line;">${item.solution}</p>
+            </div>
+            
+            <div style="width: 100%;">
+                ${logOutputBlock}
+            </div>
+        </div>
+    `;
+}
+
+// --- 8. Lógica de Ajustes y Copia de Elementos ---
+function setupSettingsPage() {
+    const btnToggle = document.getElementById("btn-toggle-token");
+    const tokenInput = document.getElementById("transit-token-input");
+    if (btnToggle && tokenInput) {
+        btnToggle.addEventListener("click", () => {
+            if (tokenInput.type === "password") {
+                tokenInput.type = "text";
+                btnToggle.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+            } else {
+                tokenInput.type = "password";
+                btnToggle.innerHTML = '<i class="fa-solid fa-eye"></i>';
+            }
+        });
+    }
+    
+    const btnCopyToken = document.getElementById("btn-copy-token");
+    if (btnCopyToken && tokenInput) {
+        btnCopyToken.addEventListener("click", () => {
+            navigator.clipboard.writeText(tokenInput.value).then(() => {
+                const originalHtml = btnCopyToken.innerHTML;
+                btnCopyToken.innerHTML = '<i class="fa-solid fa-check" style="color: #10b981;"></i>';
+                setTimeout(() => {
+                    btnCopyToken.innerHTML = originalHtml;
+                }, 1500);
+            });
+        });
+    }
+    
+    const btnCopyCurl = document.getElementById("btn-copy-curl");
+    const curlPre = document.getElementById("curl-code-command");
+    if (btnCopyCurl && curlPre) {
+        btnCopyCurl.addEventListener("click", () => {
+            navigator.clipboard.writeText(curlPre.innerText).then(() => {
+                const originalHtml = btnCopyCurl.innerHTML;
+                btnCopyCurl.innerHTML = '<i class="fa-solid fa-check" style="color: #10b981;"></i>';
+                setTimeout(() => {
+                    btnCopyCurl.innerHTML = originalHtml;
+                }, 1500);
+            });
+        });
+    }
+}
+
+// Auxiliar para formatear la lista de versiones con fix
+function formatFixedVersions(fixedObj) {
+    const versions = fixedObj?.version || [];
+    if (!Array.isArray(versions) || versions.length === 0) return "No especificada";
+    return versions.map(v => {
+        let verStr = `${v.major}.${v.minor}.${v.maintenance}`;
+        if (v.point !== undefined && v.point !== "") verStr += `.${v.point}`;
+        if (v.fix) verStr += `-${v.fix}`;
+        return verStr;
+    }).join(", ");
+}
+

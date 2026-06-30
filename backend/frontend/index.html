@@ -69,111 +69,308 @@
                 </div>
             </header>
 
-            <!-- Stats Overview Cards -->
-            <section class="stats-grid">
-                <!-- Card 1: Health Score -->
-                <div class="stat-card glass-card">
-                    <div class="card-header">
-                        <span class="card-title">Score de Salud</span>
-                        <i class="fa-solid fa-heart-circle-check icon-green"></i>
-                    </div>
-                    <div class="card-body-row">
-                        <div class="score-display">
-                            <span class="score-num" id="lbl-health-score">0</span>
-                            <span class="score-den">/100</span>
+            <!-- Tab Page: Overview -->
+            <div id="page-overview" class="tab-page">
+                <!-- Stats Overview Cards -->
+                <section class="stats-grid">
+                    <!-- Card 1: Health Score -->
+                    <div class="stat-card glass-card">
+                        <div class="card-header">
+                            <span class="card-title">Score de Salud</span>
+                            <i class="fa-solid fa-heart-circle-check icon-green"></i>
                         </div>
-                        <div class="score-progress">
-                            <svg class="progress-ring" width="60" height="60">
-                                <circle class="progress-ring-bg" stroke="#1f2937" stroke-width="6" fill="transparent" r="24" cx="30" cy="30"/>
-                                <circle class="progress-ring-bar" id="score-ring" stroke="#10b981" stroke-width="6" stroke-linecap="round" fill="transparent" r="24" cx="30" cy="30" stroke-dasharray="150.79" stroke-dashoffset="150.79"/>
-                            </svg>
+                        <div class="card-body-row">
+                            <div class="score-display">
+                                <span class="score-num" id="lbl-health-score">0</span>
+                                <span class="score-den">/100</span>
+                            </div>
+                            <div class="score-progress">
+                                <svg class="progress-ring" width="60" height="60">
+                                    <circle class="progress-ring-bg" stroke="#1f2937" stroke-width="6" fill="transparent" r="24" cx="30" cy="30"/>
+                                    <circle class="progress-ring-bar" id="score-ring" stroke="#10b981" stroke-width="6" stroke-linecap="round" fill="transparent" r="24" cx="30" cy="30" stroke-dasharray="150.79" stroke-dashoffset="150.79"/>
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <span class="footer-trend text-green"><i class="fa-solid fa-arrow-up"></i> +2%</span>
+                            <span class="footer-desc">desde el último escaneo</span>
                         </div>
                     </div>
-                    <div class="card-footer">
-                        <span class="footer-trend text-green"><i class="fa-solid fa-arrow-up"></i> +2%</span>
-                        <span class="footer-desc">desde el último escaneo</span>
+
+                    <!-- Card 2: Critical Alerts -->
+                    <div class="stat-card glass-card" data-filter="critical">
+                        <div class="card-header">
+                            <span class="card-title">Alertas Críticas</span>
+                            <i class="fa-solid fa-circle-radiation icon-red"></i>
+                        </div>
+                        <div class="card-value red-value" id="lbl-critical-count">0</div>
+                        <div class="card-footer">
+                            <span class="footer-desc">Requieren atención inmediata</span>
+                        </div>
+                    </div>
+
+                    <!-- Card 3: Warnings -->
+                    <div class="stat-card glass-card" data-filter="warning">
+                        <div class="card-header">
+                            <span class="card-title">Advertencias</span>
+                            <i class="fa-solid fa-triangle-exclamation icon-yellow"></i>
+                        </div>
+                        <div class="card-value yellow-value" id="lbl-warning-count">0</div>
+                        <div class="card-footer">
+                            <span class="footer-desc">Acciones preventivas sugeridas</span>
+                        </div>
+                    </div>
+
+                    <!-- Card 4: CVEs Detected -->
+                    <div class="stat-card glass-card" data-filter="cve">
+                        <div class="card-header">
+                            <span class="card-title">CVEs Identificados</span>
+                            <i class="fa-solid fa-bug icon-purple"></i>
+                        </div>
+                        <div class="card-value purple-value" id="lbl-cve-count">0</div>
+                        <div class="card-footer">
+                            <span class="footer-trend text-red"><i class="fa-solid fa-shield-virus"></i> Alto</span>
+                            <span class="footer-desc">Vulnerabilidades de firmware</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Dashboard Split Layout -->
+                <section class="dashboard-body">
+                    <!-- Left Column: Diagnostic List -->
+                    <div class="panel-left glass-card">
+                        <div class="panel-header">
+                            <h2>Detalle de Heurísticas Encontradas</h2>
+                            <div class="filter-pills">
+                                <button class="pill-btn active" id="btn-filter-all">Todos</button>
+                                <button class="pill-btn" id="btn-filter-critical">Crítico</button>
+                                <button class="pill-btn" id="btn-filter-warning">Advertencias</button>
+                                <button class="pill-btn" id="btn-filter-info">Info</button>
+                            </div>
+                        </div>
+                        <div class="alerts-list-container" id="alerts-list">
+                            <div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i> Cargando diagnósticos...</div>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Graphs & System Performance -->
+                    <div class="panel-right">
+                        <!-- Graph Card 1 -->
+                        <div class="glass-card chart-card">
+                            <div class="panel-header">
+                                <h2>Historial de Uso de Recursos</h2>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="resourceChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Graph Card 2 -->
+                        <div class="glass-card chart-card margin-top-20">
+                            <div class="panel-header">
+                                <h2>Tráfico de Conexiones Activas</h2>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="connectionsChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Tab Page: CVEs -->
+            <div id="page-cves" class="tab-page hidden">
+                <!-- CVE KPI Cards -->
+                <section class="stats-grid">
+                    <div class="stat-card glass-card">
+                        <div class="card-header">
+                            <span class="card-title">CVEs Totales</span>
+                            <i class="fa-solid fa-bug icon-purple"></i>
+                        </div>
+                        <div class="card-value purple-value" id="lbl-cve-total">0</div>
+                        <div class="card-footer">
+                            <span class="footer-desc">Vulnerabilidades activas detectadas</span>
+                        </div>
+                    </div>
+                    <div class="stat-card glass-card" data-cve-filter="critical">
+                        <div class="card-header">
+                            <span class="card-title">Severidad Crítica</span>
+                            <i class="fa-solid fa-circle-radiation icon-red"></i>
+                        </div>
+                        <div class="card-value red-value" id="lbl-cve-critical">0</div>
+                        <div class="card-footer">
+                            <span class="footer-desc">Acciones urgentes recomendadas</span>
+                        </div>
+                    </div>
+                    <div class="stat-card glass-card" data-cve-filter="high">
+                        <div class="card-header">
+                            <span class="card-title">Severidad Alta</span>
+                            <i class="fa-solid fa-triangle-exclamation" style="color: #f97316;"></i>
+                        </div>
+                        <div class="card-value" style="color: #f97316;" id="lbl-cve-high">0</div>
+                        <div class="card-footer">
+                            <span class="footer-desc">Peligro elevado de compromiso</span>
+                        </div>
+                    </div>
+                    <div class="stat-card glass-card" data-cve-filter="medium">
+                        <div class="card-header">
+                            <span class="card-title">Severidad Media / Baja</span>
+                            <i class="fa-solid fa-shield-halved icon-yellow"></i>
+                        </div>
+                        <div class="card-value yellow-value" id="lbl-cve-medium">0</div>
+                        <div class="card-footer">
+                            <span class="footer-desc">Amenazas de impacto moderado</span>
+                        </div>
+                    </div>
+                </section>
+
+                <div class="glass-card">
+                    <div class="panel-header" style="border-bottom: none; margin-bottom: 0; padding-bottom: 0;">
+                        <h2>Escáner de Vulnerabilidades de Firmware</h2>
+                        <div class="search-filter-row">
+                            <div class="search-box">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="cve-search-input" placeholder="Buscar por CVE, título o descripción...">
+                            </div>
+                            <div class="device-select" style="padding: 6px 12px;">
+                                <select id="cve-severity-filter">
+                                    <option value="all">Todas las Severidades</option>
+                                    <option value="critical">Crítica</option>
+                                    <option value="high">Alta</option>
+                                    <option value="medium">Media / Baja</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="alerts-list-container margin-top-20" id="cve-alerts-list">
+                        <!-- CVE cards will be injected here -->
                     </div>
                 </div>
+            </div>
 
-                <!-- Card 2: Critical Alerts -->
-                <div class="stat-card glass-card" data-filter="critical">
-                    <div class="card-header">
-                        <span class="card-title">Alertas Críticas</span>
-                        <i class="fa-solid fa-circle-radiation icon-red"></i>
-                    </div>
-                    <div class="card-value red-value" id="lbl-critical-count">0</div>
-                    <div class="card-footer">
-                        <span class="footer-desc">Requieren atención inmediata</span>
-                    </div>
-                </div>
-
-                <!-- Card 3: Warnings -->
-                <div class="stat-card glass-card" data-filter="warning">
-                    <div class="card-header">
-                        <span class="card-title">Advertencias</span>
-                        <i class="fa-solid fa-triangle-exclamation icon-yellow"></i>
-                    </div>
-                    <div class="card-value yellow-value" id="lbl-warning-count">0</div>
-                    <div class="card-footer">
-                        <span class="footer-desc">Acciones preventivas sugeridas</span>
-                    </div>
-                </div>
-
-                <!-- Card 4: CVEs Detected -->
-                <div class="stat-card glass-card" data-filter="cve">
-                    <div class="card-header">
-                        <span class="card-title">CVEs Identificados</span>
-                        <i class="fa-solid fa-bug icon-purple"></i>
-                    </div>
-                    <div class="card-value purple-value" id="lbl-cve-count">0</div>
-                    <div class="card-footer">
-                        <span class="footer-trend text-red"><i class="fa-solid fa-shield-virus"></i> Alto</span>
-                        <span class="footer-desc">Vulnerabilidades de firmware</span>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Dashboard Split Layout -->
-            <section class="dashboard-body">
-                <!-- Left Column: Diagnostic List -->
-                <div class="panel-left glass-card">
+            <!-- Tab Page: Hitos (Logs & System Info) -->
+            <div id="page-heuristics" class="tab-page hidden">
+                <!-- System Profile Panel -->
+                <div class="glass-card system-profile-card">
                     <div class="panel-header">
-                        <h2>Detalle de Heurísticas Encontradas</h2>
-                        <div class="filter-pills">
-                            <button class="pill-btn active" id="btn-filter-all">Todos</button>
-                            <button class="pill-btn" id="btn-filter-critical">Crítico</button>
-                            <button class="pill-btn" id="btn-filter-warning">Advertencias</button>
-                            <button class="pill-btn" id="btn-filter-info">Info</button>
-                        </div>
+                        <h2><i class="fa-solid fa-cube"></i> Perfil del Sistema F5 BIG-IP</h2>
                     </div>
-                    <div class="alerts-list-container" id="alerts-list">
-                        <div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i> Cargando diagnósticos...</div>
-                    </div>
-                </div>
-
-                <!-- Right Column: Graphs & System Performance -->
-                <div class="panel-right">
-                    <!-- Graph Card 1 -->
-                    <div class="glass-card chart-card">
-                        <div class="panel-header">
-                            <h2>Historial de Uso de Recursos</h2>
+                    <div class="profile-grid">
+                        <div class="profile-item">
+                            <span class="profile-label">Producto</span>
+                            <span class="profile-value" id="prof-product">-</span>
                         </div>
-                        <div class="chart-container">
-                            <canvas id="resourceChart"></canvas>
+                        <div class="profile-item">
+                            <span class="profile-label">Versión de Software</span>
+                            <span class="profile-value" id="prof-version">-</span>
                         </div>
-                    </div>
-
-                    <!-- Graph Card 2 -->
-                    <div class="glass-card chart-card margin-top-20">
-                        <div class="panel-header">
-                            <h2>Tráfico de Conexiones Activas</h2>
+                        <div class="profile-item">
+                            <span class="profile-label">Edición</span>
+                            <span class="profile-value" id="prof-edition">-</span>
                         </div>
-                        <div class="chart-container">
-                            <canvas id="connectionsChart"></canvas>
+                        <div class="profile-item">
+                            <span class="profile-label">Compilación (Build)</span>
+                            <span class="profile-value" id="prof-built">-</span>
+                        </div>
+                        <div class="profile-item span-full">
+                            <span class="profile-label">Firma de Configuración (SHA-1 QKView)</span>
+                            <span class="profile-value font-mono" id="prof-sha">-</span>
                         </div>
                     </div>
                 </div>
-            </section>
+
+                <!-- Split layout: Diagnostics Left, Logs/Evidence Right -->
+                <div class="dashboard-body">
+                    <div class="panel-left glass-card" style="min-height: 450px;">
+                        <div class="panel-header">
+                            <h2>Hitos de Diagnóstico</h2>
+                        </div>
+                        <div class="alerts-list-container" id="heuristics-selector-list" style="max-height: 500px; overflow-y: auto;">
+                            <!-- Diagnostics list will be injected here -->
+                        </div>
+                    </div>
+                    <div class="panel-right glass-card" id="heuristic-evidence-panel" style="min-height: 450px; display: flex; flex-direction: column;">
+                        <div class="panel-header">
+                            <h2>Evidencia y Logs del Diagnóstico</h2>
+                        </div>
+                        <div class="evidence-content" id="evidence-container" style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; color: var(--text-muted); text-align: center; padding: 20px;">
+                            <i class="fa-solid fa-terminal fa-3x" style="margin-bottom: 15px; color: var(--border-color);"></i>
+                            <p>Seleccione un hito de la lista de la izquierda para examinar los logs o comandos de F5 que desencadenaron la alerta.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Page: Settings / Fleet Management -->
+            <div id="page-settings" class="tab-page hidden">
+                <div class="settings-grid">
+                    <!-- Column 1: Config & Connection -->
+                    <div class="glass-card">
+                        <div class="panel-header">
+                            <h2><i class="fa-solid fa-sliders"></i> Ajustes de Conexión</h2>
+                        </div>
+                        <div class="settings-body margin-top-20">
+                            <div class="settings-form-group">
+                                <label class="settings-label">Estado del Servidor</label>
+                                <div class="server-status-box success-box">
+                                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                                    <div>
+                                        <p class="status-title">Servidor de Tránsito en Railway Conectado</p>
+                                        <p class="status-desc">El backend está listo para recibir archivos QKView vía HTTPS POST.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="settings-form-group margin-top-20">
+                                <label class="settings-label">Token de Tránsito (Authorization Token)</label>
+                                <div class="token-container">
+                                    <input type="password" id="transit-token-input" class="token-input" value="BirraverdePCtoken" readonly>
+                                    <button class="btn-icon" id="btn-toggle-token" title="Mostrar Token"><i class="fa-solid fa-eye"></i></button>
+                                    <button class="btn-icon" id="btn-copy-token" title="Copiar Token"><i class="fa-solid fa-copy"></i></button>
+                                </div>
+                                <p class="settings-help">Este token debe ser enviado en la cabecera `Authorization: Bearer <token>` al hacer peticiones POST al servidor.</p>
+                            </div>
+                            <div class="settings-form-group margin-top-20">
+                                <label class="settings-label">Comando de Carga Manual (PC local / F5)</label>
+                                <div class="code-preview-container">
+                                    <pre id="curl-code-command">curl -X POST -H "Authorization: Bearer BirraverdePCtoken" -F "qkview=@/ruta/al/archivo.qkview" https://myf5.up.railway.app/api/upload</pre>
+                                    <button class="btn-copy-code" id="btn-copy-curl"><i class="fa-solid fa-copy"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Column 2: Automation scripts guide -->
+                    <div class="glass-card">
+                        <div class="panel-header">
+                            <h2><i class="fa-solid fa-robot"></i> Guía de Automatización en F5</h2>
+                        </div>
+                        <div class="settings-body margin-top-20">
+                            <p class="guide-intro">Para programar la generación y subida automática del QKView desde el F5 BIG-IP, siga estos pasos:</p>
+                            <ol class="guide-steps">
+                                <li>
+                                    <strong>Copie el script local en el F5:</strong>
+                                    <p>Guarde el contenido del script `generate_qkview.sh` en el directorio `/shared/scripts/generate_qkview.sh` de su BIG-IP.</p>
+                                </li>
+                                <li>
+                                    <strong>Establezca permisos de ejecución:</strong>
+                                    <pre class="font-mono">chmod +x /shared/scripts/generate_qkview.sh</pre>
+                                </li>
+                                <li>
+                                    <strong>Programe la ejecución periódica:</strong>
+                                    <p>Puede usar el planificador de F5 (`iCall`) o un cron job clásico. Para configurar un cron job semanal que se ejecute los domingos a la medianoche, ejecute:</p>
+                                    <pre class="font-mono">crontab -e</pre>
+                                    <p>Y añada la siguiente línea:</p>
+                                    <pre class="font-mono">0 0 * * 0 /shared/scripts/generate_qkview.sh > /var/log/qkview_upload.log 2>&1</pre>
+                                </li>
+                            </ol>
+                            <div class="alert-box-info margin-top-20">
+                                <i class="fa-solid fa-circle-info"></i>
+                                <span>El script local incluye detección del token y del hostname para etiquetar los archivos automáticamente.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
     
