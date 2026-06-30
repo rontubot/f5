@@ -27,9 +27,11 @@ app.add_middleware(
 )
 
 # Configuration & Paths
-DB_DIR = os.path.join(os.path.dirname(__file__), "database")
+DB_DIR = os.getenv("PERSISTENT_DB_DIR", os.path.join(os.path.dirname(__file__), "database"))
+DB_DIR = os.path.abspath(DB_DIR)
 DEVICES_FILE = os.path.join(DB_DIR, "devices.json")
 os.makedirs(DB_DIR, exist_ok=True)
+
 
 # iHealth API Credentials (Configure via environment variables or settings)
 CLIENT_ID = os.getenv("F5_IHEALTH_CLIENT_ID", "YOUR_CLIENT_ID")
@@ -279,6 +281,25 @@ async def health():
     return {"status": "healthy", "time": time.time()}
 
 # Endpoints: QKView Files & Commands Logs Explorer
+@app.get("/api/test-raw-files/{hostname}")
+async def get_test_raw_files(hostname: str):
+    qkview_id = resolve_qkview_id(hostname)
+    if not qkview_id:
+        return {"error": "no qkview_id resolved"}
+    try:
+        files_data = ihealth_client.get_qkview_files(qkview_id)
+        commands_data = ihealth_client.get_qkview_commands(qkview_id)
+        return {
+            "files_data_type": str(type(files_data)),
+            "files_data_keys": list(files_data.keys()) if isinstance(files_data, dict) else None,
+            "files_data_sample": str(files_data)[:2000],
+            "commands_data_type": str(type(commands_data)),
+            "commands_data_keys": list(commands_data.keys()) if isinstance(commands_data, dict) else None,
+            "commands_data_sample": str(commands_data)[:2000],
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/devices/{hostname}/files", summary="Get list of files contained in the QKView")
 async def get_device_files(hostname: str):
     qkview_id = resolve_qkview_id(hostname)
@@ -286,6 +307,10 @@ async def get_device_files(hostname: str):
         raise HTTPException(status_code=404, detail=f"No se pudo resolver el QKView ID para el dispositivo '{hostname}'.")
     try:
         files_data = ihealth_client.get_qkview_files(qkview_id)
+        
+        # DEBUG: Imprimir la estructura recibida de iHealth en la consola
+        print(f"[iHealth DEBUG] files_data recibido: Tipo {type(files_data)}")
+        print(f"[iHealth DEBUG] files_data muestra: {str(files_data)[:800]}")
         
         # Normalizar respuesta XML-a-JSON a lista plana de diccionarios
         files_list = []
@@ -330,6 +355,10 @@ async def get_device_commands(hostname: str):
         raise HTTPException(status_code=404, detail=f"No se pudo resolver el QKView ID para el dispositivo '{hostname}'.")
     try:
         commands_data = ihealth_client.get_qkview_commands(qkview_id)
+        
+        # DEBUG: Imprimir la estructura recibida de iHealth en la consola
+        print(f"[iHealth DEBUG] commands_data recibido: Tipo {type(commands_data)}")
+        print(f"[iHealth DEBUG] commands_data muestra: {str(commands_data)[:800]}")
         
         # Normalizar respuesta XML-a-JSON a lista plana
         commands_list = []
