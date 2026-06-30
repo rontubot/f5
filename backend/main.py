@@ -323,7 +323,7 @@ async def get_device_files(hostname: str):
         normalized = []
         for f in files_list:
             f_id = f.get("id") or f.get("id_hash") or f.get("hash")
-            f_name = f.get("name") or f.get("path") or f.get("file_path") or ""
+            f_name = f.get("name") or f.get("value") or f.get("path") or f.get("file_path") or ""
             if f_id and f_name:
                 normalized.append({"id": str(f_id), "name": str(f_name)})
                 
@@ -333,7 +333,7 @@ async def get_device_files(hostname: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener archivos de iHealth: {str(e)}")
 
-@app.get("/api/devices/{hostname}/files/{file_id}", summary="Get content of a specific log file in the QKView")
+@app.get("/api/devices/{hostname}/files/{file_id:path}", summary="Get content of a specific log file in the QKView")
 async def get_device_file_content(hostname: str, file_id: str):
     qkview_id = resolve_qkview_id(hostname)
     if not qkview_id:
@@ -371,7 +371,7 @@ async def get_device_commands(hostname: str):
         normalized = []
         for c in commands_list:
             c_id = c.get("id") or c.get("id_hash") or c.get("hash")
-            c_name = c.get("name") or c.get("command_name") or c.get("command") or ""
+            c_name = c.get("name") or c.get("value") or c.get("command_name") or c.get("command") or ""
             if c_id and c_name:
                 normalized.append({"id": str(c_id), "name": str(c_name)})
                 

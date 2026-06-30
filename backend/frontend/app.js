@@ -946,6 +946,25 @@ async function loadLogItemContent(item) {
     viewerContainer.innerHTML = `<div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin fa-2x"></i> Cargando contenido...</div>`;
     document.getElementById("log-viewer-title").innerText = item.name;
     
+    // Renderizar metadatos del archivo si existen
+    const metadataContainer = document.getElementById("log-viewer-metadata");
+    if (metadataContainer) {
+        if (currentLogType === "files") {
+            const sizeFormatted = item.size ? (item.size / (1024 * 1024)).toFixed(2) + " MB" : "Desconocido";
+            const perms = item.permissions || "Desconocido";
+            const modified = item.lastModified || "Desconocido";
+            metadataContainer.innerHTML = `
+                <span class="badge badge-info" style="text-transform: none; font-size: 11px;">Tamaño: ${sizeFormatted}</span>
+                <span class="badge badge-info" style="text-transform: none; font-size: 11px;">Permisos: ${perms}</span>
+                <span class="badge badge-info" style="text-transform: none; font-size: 11px;">Última Modificación: ${modified}</span>
+            `;
+            metadataContainer.classList.remove("hidden");
+        } else {
+            metadataContainer.innerHTML = "";
+            metadataContainer.classList.add("hidden");
+        }
+    }
+    
     const btnDownload = document.getElementById("btn-download-log");
     if (btnDownload) btnDownload.disabled = true;
     

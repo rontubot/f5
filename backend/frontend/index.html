@@ -13,7 +13,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="styles.css?v=1.0.3">
+    <link rel="stylesheet" href="styles.css?v=1.0.4">
 </head>
 <body class="dark-mode">
     <div class="app-container">
@@ -330,7 +330,10 @@
                     <!-- Right: actual log file viewer -->
                     <div class="panel-right glass-card" id="log-viewer-panel" style="min-height: 500px; display: flex; flex-direction: column;">
                         <div class="panel-header" style="justify-content: space-between; flex-wrap: wrap; gap: 12px;">
-                            <h2 id="log-viewer-title">Visor de Logs</h2>
+                            <div style="display: flex; flex-direction: column; gap: 6px;">
+                                <h2 id="log-viewer-title" style="margin: 0;">Visor de Logs</h2>
+                                <div id="log-viewer-metadata" class="hidden" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
+                            </div>
                             <div style="display: flex; gap: 12px; align-items: center;">
                                 <!-- Live text search inside log -->
                                 <div class="search-box" style="padding: 6px 12px; max-width: 250px;">
@@ -424,6 +427,6 @@
     </div>
     
     <!-- Custom JS -->
-    <script src="app.js?v=1.0.3"></script>
+    <script src="app.js?v=1.0.4"></script>
 </body>
 </html>
