@@ -68,9 +68,10 @@ document.addEventListener("DOMContentLoaded", () => {
     setupSettingsPage();
     setupCveFilters();
     setupLogExplorerEvents();
+    setupDragAndDrop();
     // Mantener la página sincronizada en vivo de forma constante cada 30 segundos
     setInterval(() => {
-        if (isBackendOnline) {
+        if (isBackendOnline && !rapidPollingInterval) {
             loadRealDevices();
         }
     }, 30000);
@@ -1106,5 +1107,223 @@ function setupLogExplorerEvents() {
         });
     }
 }
+
+// --- 10. Sistema de Arrastre (Drag & Drop) y Sondeo Rápido ---
+let rapidPollingInterval = null;
+
+function setupDragAndDrop() {
+    const zone = document.getElementById("drag-drop-zone");
+    const fileInput = document.getElementById("qkview-file-input");
+    
+    if (!zone || !fileInput) return;
+    
+    // Clic en la tarjeta abre el buscador de archivos
+    zone.addEventListener("click", (e) => {
+        if (e.target.closest("#upload-progress-container")) return;
+        fileInput.click();
+    });
+    
+    // Selección mediante cuadro de diálogo tradicional
+    fileInput.addEventListener("change", () => {
+        if (fileInput.files.length > 0) {
+            handleFileUpload(fileInput.files[0]);
+        }
+    });
+    
+    // Eventos de arrastre
+    zone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        zone.classList.add("dragover");
+    });
+    
+    zone.addEventListener("dragleave", () => {
+        zone.classList.remove("dragover");
+    });
+    
+    zone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        zone.classList.remove("dragover");
+        if (e.dataTransfer.files.length > 0) {
+            handleFileUpload(e.dataTransfer.files[0]);
+        }
+    });
+}
+
+function handleFileUpload(file) {
+    if (!file) return;
+    
+    // Validar formato del archivo
+    if (!file.name.endsWith(".qkview")) {
+        alert("Formato de archivo inválido. Por favor, suba únicamente archivos con extensión '.qkview'.");
+        return;
+    }
+    
+    const progressContainer = document.getElementById("upload-progress-container");
+    const filenameLabel = document.getElementById("upload-filename");
+    const percentLabel = document.getElementById("upload-percent");
+    const progressBar = document.getElementById("upload-progress-bar");
+    const statusText = document.getElementById("upload-status-text");
+    
+    if (!progressContainer) return;
+    
+    // Mostrar interfaz de carga
+    progressContainer.classList.remove("hidden");
+    filenameLabel.innerText = file.name;
+    percentLabel.innerText = "0%";
+    progressBar.style.width = "0%";
+    statusText.innerText = "Subiendo archivo al servidor de tránsito...";
+    
+    const formData = new FormData();
+    formData.append("file", file);
+    
+    // Recuperar token desde ajustes
+    const token = document.getElementById("transit-token-input")?.value || "BirraverdePCtoken";
+    
+    // Petición HTTP XMLHttpRequest para medir progreso
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${BACKEND_API_URL}/api/upload`, true);
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    
+    // Escuchar progreso de carga de bytes
+    xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            percentLabel.innerText = `${percent}%`;
+            progressBar.style.width = `${percent}%`;
+            if (percent === 100) {
+                statusText.innerText = "Carga completa. Procesando en Railway y subiendo a F5 iHealth...";
+            }
+        }
+    });
+    
+    // Al finalizar la subida
+    xhr.onload = () => {
+        if (xhr.status === 200 || xhr.status === 202) {
+            try {
+                const response = JSON.parse(xhr.responseText);
+                console.log("[iHealth] Archivo subido exitosamente:", response);
+                
+                let hostname = response.hostname || "unknown-f5";
+                statusText.innerHTML = `<span style="color: #10b981;"><i class="fa-solid fa-circle-check"></i> Subido con éxito. Iniciando sondeo de estado...</span>`;
+                
+                // Iniciar consulta de estado continua de 5 segundos
+                startRapidPolling(hostname);
+            } catch (err) {
+                console.error("Error procesando respuesta de subida:", err);
+                statusText.innerText = "Archivo subido, pero no se pudo determinar el hostname.";
+            }
+        } else {
+            console.error("[iHealth] Error en subida:", xhr.status, xhr.responseText);
+            statusText.innerHTML = `<span style="color: #ef4444;"><i class="fa-solid fa-triangle-exclamation"></i> Falló la subida (Código ${xhr.status}). Verifique el Token en Ajustes.</span>`;
+        }
+    };
+    
+    xhr.onerror = () => {
+        statusText.innerHTML = `<span style="color: #ef4444;"><i class="fa-solid fa-triangle-exclamation"></i> Error de conexión de red con el servidor.</span>`;
+    };
+    
+    xhr.send(formData);
+}
+
+function startRapidPolling(hostname) {
+    if (rapidPollingInterval) clearInterval(rapidPollingInterval);
+    
+    // Renderizar spinner de carga en el panel de alertas de Vista General
+    renderProcessingState(hostname);
+    
+    // Forzar selección del nuevo dispositivo en el selector superior
+    let selector = document.getElementById("device-selector");
+    if (selector) {
+        let optionExists = false;
+        for (let i = 0; i < selector.options.length; i++) {
+            if (selector.options[i].value === hostname) {
+                optionExists = true;
+                break;
+            }
+        }
+        if (!optionExists) {
+            const opt = document.createElement("option");
+            opt.value = hostname;
+            opt.innerText = `${hostname} (Procesando...)`;
+            selector.appendChild(opt);
+        }
+        selector.value = hostname;
+        
+        // Actualizar valores de cabecera temporalmente
+        document.getElementById("lbl-hostname").innerText = hostname;
+        document.getElementById("lbl-last-scan").innerText = "Procesando...";
+        document.getElementById("lbl-health-score").innerText = "0";
+    }
+    
+    rapidPollingInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`${BACKEND_API_URL}/api/devices`);
+            if (!response.ok) return;
+            const devices = await response.json();
+            
+            const dev = devices.find(d => d.hostname === hostname);
+            if (dev) {
+                if (dev.status === "completed") {
+                    clearInterval(rapidPollingInterval);
+                    rapidPollingInterval = null;
+                    
+                    // Ocultar barra de progreso tras 3 segundos
+                    setTimeout(() => {
+                        const progressContainer = document.getElementById("upload-progress-container");
+                        if (progressContainer) progressContainer.classList.add("hidden");
+                    }, 3000);
+                    
+                    console.log(`[iHealth] Sondeo exitoso. Dispositivo ${hostname} está listo.`);
+                    
+                    // Recargar dispositivos reales y cargar los datos correspondientes
+                    await loadRealDevices();
+                    if (selector) selector.value = hostname;
+                    loadRealDeviceData(hostname);
+                    
+                } else if (dev.status === "failed") {
+                    clearInterval(rapidPollingInterval);
+                    rapidPollingInterval = null;
+                    
+                    const statusText = document.getElementById("upload-status-text");
+                    if (statusText) {
+                        statusText.innerHTML = `<span style="color: #ef4444;"><i class="fa-solid fa-triangle-exclamation"></i> Error en iHealth: ${dev.error_message || 'Fallo de análisis'}</span>`;
+                    }
+                    
+                    const listContainer = document.getElementById("alerts-list");
+                    if (listContainer) {
+                        listContainer.innerHTML = `
+                            <div class="loading-spinner" style="color: #ef4444; flex-direction: column; gap: 12px; padding: 50px 20px;">
+                                <i class="fa-solid fa-circle-xmark fa-3x"></i>
+                                <p style="font-weight: 600;">El análisis de QKView falló</p>
+                                <p style="font-size: 12.5px; color: var(--text-muted);">${dev.error_message || 'Compruebe las credenciales de iHealth en Railway.'}</p>
+                            </div>
+                        `;
+                    }
+                } else {
+                    // Mantener el spinner y actualizar selector por si acaso
+                    renderProcessingState(hostname);
+                }
+            }
+        } catch (err) {
+            console.error("Error consultando estado en sondeo rápido:", err);
+        }
+    }, 5000);
+}
+
+function renderProcessingState(hostname) {
+    const listContainer = document.getElementById("alerts-list");
+    if (!listContainer) return;
+    
+    listContainer.innerHTML = `
+        <div class="loading-spinner" style="flex-direction: column; gap: 20px; padding: 60px 20px; width: 100%;">
+            <i class="fa-solid fa-arrows-spin fa-spin fa-3x" style="color: var(--accent-primary);"></i>
+            <div style="text-align: center;">
+                <p style="font-weight: 600; color: #fff; margin-bottom: 6px;">[iHealth] Analizando el QKView de '${hostname}'...</p>
+                <p style="font-size: 12.5px; color: var(--text-muted);">La API de F5 está ejecutando diagnósticos heurísticos y analizando CVEs. Esto puede tomar unos minutos.</p>
+            </div>
+        </div>
+    `;
+}
+
 
 
