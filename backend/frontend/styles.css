@@ -1095,4 +1095,105 @@ body.dark-mode {
     text-align: left;
 }
 
+/* Graphs Grid & Card Styles */
+.graphs-grid {
+    display: grid;
+    gap: 20px;
+    margin-top: 10px;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Vista General layout (2x2 grid) */
+.graphs-grid.general-layout {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+@media (max-width: 1024px) {
+    .graphs-grid.general-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Vista Detallada layout (3x3 grid) */
+.graphs-grid.detailed-layout {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 1200px) {
+    .graphs-grid.detailed-layout {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .graphs-grid.detailed-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Graph Card Styling */
+.graph-card {
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    min-height: 330px;
+    height: 100%;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.graph-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(59, 130, 246, 0.15);
+    border-color: hsla(217, 91%, 60%, 0.25);
+}
+
+.graph-card-header {
+    display: flex;
+    flex-direction: column;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+}
+
+.graph-card-title {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.graph-card-subtitle {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.graph-canvas-wrapper {
+    position: relative;
+    flex-grow: 1;
+    width: 100%;
+    min-height: 200px;
+}
+
+.graph-card-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border-color);
+    padding-top: 10px;
+    margin-top: 15px;
+    opacity: 0.8;
+}
+
+.graph-card-footer i {
+    color: var(--accent-primary);
+}
+
+/* Hidden graphs helper */
+.graph-card.hidden {
+    display: none !important;
+}
+
 

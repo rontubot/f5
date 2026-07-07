@@ -264,21 +264,33 @@ async function loadRealDeviceData(hostname) {
         if (curlPre) {
             curlPre.innerText = `curl -X POST -H "Authorization: Bearer BirraverdePCtoken" -F "qkview=@/ruta/al/archivo.qkview" ${BACKEND_API_URL}/api/upload`;
         }
+        // Generar historial de recursos simulados basados en el nombre del host (con variación estable)
+        const overviewSeed = getSeedFromString(hostname);
+        const overviewRng = createSeededRandom(overviewSeed);
+        const cpuHistory = [];
+        const ramHistory = [];
+        const connHistory = [];
+        const baseCpu = 20 + (overviewSeed % 15);
+        const baseRam = 50 + (overviewSeed % 12);
+        
+        for (let i = 0; i < 7; i++) {
+            cpuHistory.push(Math.round(baseCpu + overviewRng() * 12 - 6));
+            ramHistory.push(Math.round(baseRam + overviewRng() * 4 - 2));
+            connHistory.push(Math.round((500 + (overviewSeed % 6) * 200) * (0.85 + overviewRng() * 0.3)));
+        }
 
-        // Generar historial de recursos simulados basados en el estado del equipo
         const simulatedHistory = {
             labels: ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"],
-            cpu: [20, 25, 30, 28, 32, 22, 25].map(v => Math.min(95, v + (devMeta.stats.critical * 8))),
-            ram: [55, 57, 58, 60, 62, 55, 56].map(v => Math.min(98, v + (devMeta.stats.warning * 3)))
+            cpu: cpuHistory,
+            ram: ramHistory
         };
         initResourceChart(simulatedHistory);
 
         const simulatedConnections = {
             labels: ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"],
-            active: [500, 600, 750, 680, 800, 450, 480].map(v => v * (devMeta.stats.info + 1))
+            active: connHistory
         };
         initConnectionsChart(simulatedConnections);
-
     } catch (err) {
         console.error("Error al cargar diagnósticos del dispositivo:", err);
     }
@@ -487,7 +499,6 @@ function simulateScan() {
         }, 1500);
     }, 1500);
 }
-
 // --- 5. Lógica de Pestañas y Vistas ---
 function setupTabs() {
     const tabs = [
@@ -495,6 +506,7 @@ function setupTabs() {
         { btn: "btn-cves", page: "page-cves" },
         { btn: "btn-heuristics", page: "page-heuristics" },
         { btn: "btn-logs", page: "page-logs" },
+        { btn: "btn-graphs", page: "page-graphs" },
         { btn: "btn-settings", page: "page-settings" }
     ];
     
@@ -521,8 +533,13 @@ function setupTabs() {
                     loadDeviceLogItems();
                 }
                 
+                // Cargar gráficas si se selecciona esa pestaña
+                if (tab.page === "page-graphs") {
+                    loadDeviceGraphs();
+                }
+                
                 // Redimensionar gráficos para evitar problemas de ancho al volver
-                if (tab.page === "page-overview") {
+                if (tab.page === "page-overview" || tab.page === "page-graphs") {
                     window.dispatchEvent(new Event('resize'));
                 }
             });
@@ -1312,8 +1329,6 @@ function startRapidPolling(hostname) {
 
 function renderProcessingState(hostname) {
     const listContainer = document.getElementById("alerts-list");
-    if (!listContainer) return;
-    
     listContainer.innerHTML = `
         <div class="loading-spinner" style="flex-direction: column; gap: 20px; padding: 60px 20px; width: 100%;">
             <i class="fa-solid fa-arrows-spin fa-spin fa-3x" style="color: var(--accent-primary);"></i>
@@ -1323,6 +1338,373 @@ function renderProcessingState(hostname) {
             </div>
         </div>
     `;
+}
+
+// --- 11. Apartado de Gráficas de Rendimiento (Vista General y Detallada) ---
+let activeCharts = {};
+let currentGraphView = "general"; // "general" o "detailed"
+let currentGraphCategory = "all"; // "all", "sistema", "red", "disco", "ssl"
+let graphsListenersAttached = false;
+
+// Semilla determinista basada en el nombre del host
+function getSeedFromString(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return Math.abs(hash);
+}
+
+// Generador pseudo-aleatorio lineal (LCG)
+function createSeededRandom(seed) {
+    let s = seed;
+    return function() {
+        s = (s * 9301 + 49297) % 233280;
+        return s / 233280;
+    };
+}
+
+function setupGraphsTabControls() {
+    if (graphsListenersAttached) return;
+    
+    // Listeners del selector de Vista (General vs Detallada)
+    const btnGeneral = document.getElementById("btn-graph-view-general");
+    const btnDetailed = document.getElementById("btn-graph-view-detailed");
+    
+    if (btnGeneral && btnDetailed) {
+        btnGeneral.addEventListener("click", () => {
+            btnGeneral.classList.add("active");
+            btnDetailed.classList.remove("active");
+            currentGraphView = "general";
+            applyGraphFiltersAndLayout();
+        });
+        
+        btnDetailed.addEventListener("click", () => {
+            btnDetailed.classList.add("active");
+            btnGeneral.classList.remove("active");
+            currentGraphView = "detailed";
+            applyGraphFiltersAndLayout();
+        });
+    }
+    
+    // Listeners del selector de Categorías
+    const catSelector = document.getElementById("graph-category-selector");
+    if (catSelector) {
+        const buttons = catSelector.querySelectorAll("button");
+        buttons.forEach(btn => {
+            btn.addEventListener("click", () => {
+                buttons.forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                currentGraphCategory = btn.getAttribute("data-category");
+                applyGraphFiltersAndLayout();
+            });
+        });
+    }
+    
+    graphsListenersAttached = true;
+}
+
+function applyGraphFiltersAndLayout() {
+    const container = document.getElementById("graphs-grid-container");
+    if (!container) return;
+    
+    // Modificar rejilla CSS según la vista
+    if (currentGraphView === "general") {
+        container.className = "graphs-grid general-layout";
+    } else {
+        container.className = "graphs-grid detailed-layout";
+    }
+    
+    // Gráficas que deben aparecer en la "Vista General" (2x2)
+    const generalCharts = ["card-chart-cpu", "card-chart-ram", "card-chart-conns", "card-chart-throughput"];
+    
+    const cards = container.querySelectorAll(".graph-card");
+    cards.forEach(card => {
+        const cat = card.getAttribute("data-cat");
+        const id = card.id;
+        
+        let visible = true;
+        
+        // Ocultar si no forma parte de la vista general
+        if (currentGraphView === "general" && !generalCharts.includes(id)) {
+            visible = false;
+        }
+        
+        // Ocultar si no pertenece a la categoría filtrada
+        if (currentGraphCategory !== "all" && cat !== currentGraphCategory) {
+            visible = false;
+        }
+        
+        if (visible) {
+            card.classList.remove("hidden");
+        } else {
+            card.classList.add("hidden");
+        }
+    });
+    
+    // Forzar reajuste de tamaño para que Chart.js ocupe el 100%
+    setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+    }, 100);
+}
+
+function drawGraph(canvasId, config) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    
+    // Destruir instancia previa para evitar superposición
+    if (activeCharts[canvasId]) {
+        activeCharts[canvasId].destroy();
+    }
+    
+    const chartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: {
+            duration: 700,
+            easing: 'easeInOutQuad'
+        },
+        plugins: {
+            legend: {
+                display: true,
+                position: 'top',
+                labels: {
+                    color: '#9ca3af',
+                    font: { family: "'Inter', sans-serif", size: 11, weight: 500 },
+                    boxWidth: 12,
+                    padding: 8
+                }
+            },
+            tooltip: {
+                enabled: true,
+                mode: 'index',
+                intersect: false,
+                backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                titleColor: '#ffffff',
+                titleFont: { family: "'Inter', sans-serif", size: 12, weight: 700 },
+                bodyColor: '#d1d5db',
+                bodyFont: { family: "'Inter', sans-serif", size: 11 },
+                borderColor: 'rgba(59, 130, 246, 0.25)',
+                borderWidth: 1,
+                padding: 10,
+                cornerRadius: 8,
+                callbacks: {
+                    label: function(context) {
+                        let label = context.dataset.label || '';
+                        if (label) label += ': ';
+                        if (context.parsed.y !== null) {
+                            label += context.parsed.y + (config.ySuffix || '');
+                        }
+                        return label;
+                    }
+                }
+            }
+        },
+        scales: {
+            x: {
+                grid: { color: 'rgba(255, 255, 255, 0.03)', drawBorder: false },
+                ticks: { color: '#9ca3af', font: { family: "'Inter', sans-serif", size: 10 } }
+            },
+            y: {
+                stacked: config.stacked || false,
+                grid: { color: 'rgba(255, 255, 255, 0.04)', drawBorder: false },
+                ticks: {
+                    color: '#9ca3af',
+                    font: { family: "'Inter', sans-serif", size: 10 },
+                    callback: function(value) {
+                        return value + (config.ySuffix || '');
+                    }
+                }
+            }
+        }
+    };
+    
+    if (config.yMax !== undefined) {
+        chartOptions.scales.y.max = config.yMax;
+        chartOptions.scales.y.min = 0;
+    }
+    
+    activeCharts[canvasId] = new Chart(ctx, {
+        type: config.type,
+        data: {
+            labels: config.labels,
+            datasets: config.datasets
+        },
+        options: chartOptions
+    });
+}
+
+function loadDeviceGraphs() {
+    const hostname = document.getElementById("lbl-hostname").innerText;
+    if (!hostname || hostname === "Cargando...") return;
+    
+    setupGraphsTabControls();
+    
+    const seed = getSeedFromString(hostname);
+    const rng = createSeededRandom(seed);
+    
+    // Generar etiquetas de tiempo para las últimas 24 horas
+    const labels = [];
+    for (let i = 23; i >= 0; i--) {
+        const d = new Date();
+        d.setHours(d.getHours() - i);
+        labels.push(`${d.getHours().toString().padStart(2, '0')}:00`);
+    }
+    
+    // 1. CPU TMM vs Host CPU
+    const tmmCpu = [];
+    const hostCpu = [];
+    for (let i = 0; i < 24; i++) {
+        const hour = parseInt(labels[i].split(":")[0]);
+        const diurnalFactor = Math.sin(((hour - 6) / 24) * 2 * Math.PI) * 15 + 25; // oscila entre 10% y 40%
+        const rand = rng() * 10 - 5;
+        tmmCpu.push(Math.max(2, Math.round(diurnalFactor + rand)));
+        hostCpu.push(Math.max(4, Math.round(12 + rng() * 8 + Math.sin(hour / 3) * 3)));
+    }
+    drawGraph("chart-cpu-tmm-host", {
+        type: 'line',
+        labels: labels,
+        datasets: [
+            { label: 'TMM CPU', data: tmmCpu, borderColor: 'hsl(217, 91%, 60%)', backgroundColor: 'hsla(217, 91%, 60%, 0.08)', fill: true, tension: 0.4 },
+            { label: 'Host CPU', data: hostCpu, borderColor: 'hsl(145, 80%, 50%)', backgroundColor: 'transparent', fill: false, tension: 0.4 }
+        ],
+        yMax: 100,
+        ySuffix: '%'
+    });
+    
+    // 2. RAM Allocation
+    const tmmRam = [];
+    const hostRam = [];
+    const swapRam = [];
+    const ramBase = 45 + (seed % 20); // base constante por hostname
+    for (let i = 0; i < 24; i++) {
+        tmmRam.push(Math.round(ramBase + Math.sin(i / 10) * 1.2 + rng() * 0.4));
+        hostRam.push(Math.round(15 + Math.cos(i / 8) * 0.8 + rng() * 0.3));
+        swapRam.push(Math.round(rng() * 0.5));
+    }
+    drawGraph("chart-ram-dist", {
+        type: 'line',
+        labels: labels,
+        datasets: [
+            { label: 'TMM RAM', data: tmmRam, borderColor: 'hsl(217, 91%, 60%)', backgroundColor: 'hsla(217, 91%, 60%, 0.08)', fill: true, tension: 0.3 },
+            { label: 'Host RAM', data: hostRam, borderColor: 'hsl(270, 85%, 65%)', backgroundColor: 'hsla(270, 85%, 65%, 0.08)', fill: true, tension: 0.3 },
+            { label: 'Swap', data: swapRam, borderColor: 'hsl(0, 80%, 60%)', backgroundColor: 'transparent', fill: false, tension: 0.1 }
+        ],
+        stacked: true,
+        yMax: 100,
+        ySuffix: '%'
+    });
+    
+    // 3. Active Connections
+    const activeConns = [];
+    const connBase = 1200 + (seed % 10) * 600;
+    for (let i = 0; i < 24; i++) {
+        const hour = parseInt(labels[i].split(":")[0]);
+        const timeFactor = Math.sin(((hour - 7) / 24) * 2 * Math.PI) * 0.35 + 0.65;
+        activeConns.push(Math.round((timeFactor * connBase) + (rng() * 150)));
+    }
+    drawGraph("chart-active-connections", {
+        type: 'line',
+        labels: labels,
+        datasets: [{ label: 'Conexiones Activas', data: activeConns, borderColor: 'hsl(145, 80%, 50%)', backgroundColor: 'hsla(145, 80%, 50%, 0.08)', fill: true, tension: 0.4 }],
+        ySuffix: ''
+    });
+    
+    // 4. Connection Rate
+    const connRate = [];
+    for (let i = 0; i < 24; i++) {
+        const hour = parseInt(labels[i].split(":")[0]);
+        const timeFactor = Math.sin(((hour - 7) / 24) * 2 * Math.PI) * 0.35 + 0.65;
+        connRate.push(Math.round((timeFactor * (activeConns[i] / 18)) + (rng() * 10)));
+    }
+    drawGraph("chart-new-connection-rate", {
+        type: 'line',
+        labels: labels,
+        datasets: [{ label: 'Nuevas Conexiones/seg', data: connRate, borderColor: 'hsl(200, 95%, 55%)', backgroundColor: 'transparent', fill: false, tension: 0.4 }],
+        ySuffix: ' con/s'
+    });
+    
+    // 5. Throughput
+    const throughputIn = [];
+    const throughputOut = [];
+    const throughputBase = 0.4 + (seed % 6) * 0.35;
+    for (let i = 0; i < 24; i++) {
+        const hour = parseInt(labels[i].split(":")[0]);
+        const timeFactor = Math.sin(((hour - 7) / 24) * 2 * Math.PI) * 0.3 + 0.7;
+        throughputIn.push(parseFloat((timeFactor * throughputBase + rng() * 0.05).toFixed(2)));
+        throughputOut.push(parseFloat((timeFactor * throughputBase * 0.88 + rng() * 0.04).toFixed(2)));
+    }
+    drawGraph("chart-throughput", {
+        type: 'line',
+        labels: labels,
+        datasets: [
+            { label: 'Ingreso (Interfaces IN)', data: throughputIn, borderColor: 'hsl(217, 91%, 60%)', backgroundColor: 'hsla(217, 91%, 60%, 0.08)', fill: true, tension: 0.4 },
+            { label: 'Egreso (Interfaces OUT)', data: throughputOut, borderColor: 'hsl(270, 85%, 65%)', backgroundColor: 'hsla(270, 85%, 65%, 0.04)', fill: true, tension: 0.4 }
+        ],
+        ySuffix: ' Gbps'
+    });
+    
+    // 6. SSL TPS
+    const sslTps = [];
+    const tpsBase = 80 + (seed % 8) * 90;
+    for (let i = 0; i < 24; i++) {
+        const hour = parseInt(labels[i].split(":")[0]);
+        const timeFactor = Math.sin(((hour - 7) / 24) * 2 * Math.PI) * 0.28 + 0.72;
+        sslTps.push(Math.round(timeFactor * tpsBase + rng() * 10));
+    }
+    drawGraph("chart-ssl-tps", {
+        type: 'line',
+        labels: labels,
+        datasets: [{ label: 'SSL TPS', data: sslTps, borderColor: 'hsl(40, 90%, 55%)', backgroundColor: 'transparent', fill: false, tension: 0.4 }],
+        ySuffix: ' tps'
+    });
+    
+    // 7. HTTP Requests
+    const httpReqs = [];
+    for (let i = 0; i < 24; i++) {
+        httpReqs.push(Math.round(sslTps[i] * (2.8 + rng() * 0.5)));
+    }
+    drawGraph("chart-http-reqs", {
+        type: 'line',
+        labels: labels,
+        datasets: [{ label: 'HTTP Requests/seg', data: httpReqs, borderColor: 'hsl(340, 85%, 60%)', backgroundColor: 'transparent', fill: false, tension: 0.4 }],
+        ySuffix: ' req/s'
+    });
+    
+    // 8. Disk Partitions
+    const partitions = ['/', '/var', '/var/log', '/config', '/usr'];
+    const diskUsage = [];
+    diskUsage.push(Math.round(20 + (seed % 8)));
+    diskUsage.push(Math.round(35 + (seed % 15)));
+    diskUsage.push(Math.round(50 + (seed % 30)));
+    diskUsage.push(Math.round(12 + (seed % 6)));
+    diskUsage.push(Math.round(58));
+    drawGraph("chart-disk-partitions", {
+        type: 'bar',
+        labels: partitions,
+        datasets: [{ label: 'Uso de Partición %', data: diskUsage, backgroundColor: 'hsla(217, 91%, 60%, 0.4)', borderColor: 'hsl(217, 91%, 60%)', borderWidth: 1 }],
+        yMax: 100,
+        ySuffix: '%'
+    });
+    
+    // 9. Disk IOPS
+    const diskReads = [];
+    const diskWrites = [];
+    for (let i = 0; i < 24; i++) {
+        diskReads.push(Math.round(40 + rng() * 35 + (i % 3 === 0 ? rng() * 70 : 0)));
+        diskWrites.push(Math.round(20 + rng() * 20 + (i % 4 === 0 ? rng() * 50 : 0)));
+    }
+    drawGraph("chart-disk-iops", {
+        type: 'line',
+        labels: labels,
+        datasets: [
+            { label: 'Lectura (IOPS)', data: diskReads, borderColor: 'hsl(145, 80%, 50%)', backgroundColor: 'transparent', fill: false, tension: 0.3 },
+            { label: 'Escritura (IOPS)', data: diskWrites, borderColor: 'hsl(0, 80%, 60%)', backgroundColor: 'transparent', fill: false, tension: 0.3 }
+        ],
+        ySuffix: ' iops'
+    });
+    
+    applyGraphFiltersAndLayout();
 }
 
 

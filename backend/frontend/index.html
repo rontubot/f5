@@ -39,6 +39,9 @@
                 <a href="#" class="menu-item" id="btn-logs">
                     <i class="fa-solid fa-terminal"></i> Explorador de Logs
                 </a>
+                <a href="#" class="menu-item" id="btn-graphs">
+                    <i class="fa-solid fa-chart-line"></i> Gráficas de Rendimiento
+                </a>
                 <a href="#" class="menu-item" id="btn-settings">
                     <i class="fa-solid fa-sliders"></i> Ajustes de Flota
                 </a>
@@ -375,6 +378,166 @@
                             <p>Seleccione un archivo de log o comando de la lista de la izquierda para ver su contenido aquí.</p>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Tab Page: Performance Graphs -->
+            <div id="page-graphs" class="tab-page hidden">
+                <!-- Controls bar -->
+                <div class="glass-card" style="margin-bottom: 20px; padding: 18px 24px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+                        <div>
+                            <h2 style="margin: 0; font-size: 18px; font-weight: 700; color: #fff;"><i class="fa-solid fa-chart-line" style="color: var(--accent-primary); margin-right: 8px;"></i>Métricas de Rendimiento Histórico</h2>
+                            <p style="margin: 4px 0 0 0; font-size: 12.5px; color: var(--text-muted);">Visualiza el historial completo del consumo de recursos, redes y subsistemas.</p>
+                        </div>
+                        <div style="display: flex; gap: 12px; align-items: center;">
+                            <!-- View mode toggler -->
+                            <div class="filter-pills" id="graph-view-selector" style="margin: 0;">
+                                <button class="pill-btn active" id="btn-graph-view-general">Vista General</button>
+                                <button class="pill-btn" id="btn-graph-view-detailed">Vista Detallada</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Category filter pills -->
+                    <div class="filter-pills margin-top-20" id="graph-category-selector" style="justify-content: flex-start; border-top: 1px solid var(--border-color); padding-top: 14px;">
+                        <button class="pill-btn active" data-category="all">Todas las Métricas</button>
+                        <button class="pill-btn" data-category="sistema">Sistema y Procesador</button>
+                        <button class="pill-btn" data-category="red">Tráfico y Conexiones</button>
+                        <button class="pill-btn" data-category="disco">Almacenamiento e I/O</button>
+                        <button class="pill-btn" data-category="ssl">Aceleración SSL/HTTP</button>
+                    </div>
+                </div>
+
+                <!-- Graphs Rejilla Grid -->
+                <div class="graphs-grid general-layout" id="graphs-grid-container">
+                    
+                    <!-- Chart 1: CPU TMM vs Host -->
+                    <div class="glass-card graph-card" data-cat="sistema" id="card-chart-cpu">
+                        <div class="graph-card-header">
+                            <span class="graph-card-title">Uso de CPU del Sistema</span>
+                            <span class="graph-card-subtitle">TMM (Plano de Datos) vs Host (Control Plane)</span>
+                        </div>
+                        <div class="graph-canvas-wrapper">
+                            <canvas id="chart-cpu-tmm-host"></canvas>
+                        </div>
+                        <div class="graph-card-footer">
+                            <i class="fa-solid fa-circle-info"></i> Compara el porcentaje de uso del procesador dedicado al tráfico frente a las tareas administrativas.
+                        </div>
+                    </div>
+
+                    <!-- Chart 2: RAM Allocation -->
+                    <div class="glass-card graph-card" data-cat="sistema" id="card-chart-ram">
+                        <div class="graph-card-header">
+                            <span class="graph-card-title">Distribución de Memoria RAM</span>
+                            <span class="graph-card-subtitle">Asignación para TMM, Host y Memoria de Intercambio (Swap)</span>
+                        </div>
+                        <div class="graph-canvas-wrapper">
+                            <canvas id="chart-ram-dist"></canvas>
+                        </div>
+                        <div class="graph-card-footer">
+                            <i class="fa-solid fa-circle-info"></i> Monitorea que el consumo de memoria del plano de datos permanezca estable sin fugas.
+                        </div>
+                    </div>
+
+                    <!-- Chart 3: Active Connections -->
+                    <div class="glass-card graph-card" data-cat="red" id="card-chart-conns">
+                        <div class="graph-card-header">
+                            <span class="graph-card-title">Conexiones Concurrentes Activas</span>
+                            <span class="graph-card-subtitle">Total de sesiones concurrentes a través de TMM</span>
+                        </div>
+                        <div class="graph-canvas-wrapper">
+                            <canvas id="chart-active-connections"></canvas>
+                        </div>
+                        <div class="graph-card-footer">
+                            <i class="fa-solid fa-circle-info"></i> Muestra la cantidad acumulada de conexiones de red TCP/UDP en tiempo real.
+                        </div>
+                    </div>
+
+                    <!-- Chart 4: Connection Rate -->
+                    <div class="glass-card graph-card" data-cat="red" id="card-chart-conn-rate">
+                        <div class="graph-card-header">
+                            <span class="graph-card-title">Tasa de Nuevas Conexiones</span>
+                            <span class="graph-card-subtitle">Nuevas sesiones entrantes aceptadas por segundo</span>
+                        </div>
+                        <div class="graph-canvas-wrapper">
+                            <canvas id="chart-new-connection-rate"></canvas>
+                        </div>
+                        <div class="graph-card-footer">
+                            <i class="fa-solid fa-circle-info"></i> Útil para identificar picos repentinos de tráfico o intentos de denegación de servicio (DDoS).
+                        </div>
+                    </div>
+
+                    <!-- Chart 5: Throughput -->
+                    <div class="glass-card graph-card" data-cat="red" id="card-chart-throughput">
+                        <div class="graph-card-header">
+                            <span class="graph-card-title">Rendimiento de Red (Throughput)</span>
+                            <span class="graph-card-subtitle">Tasa de transferencia de bits en Interfaces (IN / OUT)</span>
+                        </div>
+                        <div class="graph-canvas-wrapper">
+                            <canvas id="chart-throughput"></canvas>
+                        </div>
+                        <div class="graph-card-footer">
+                            <i class="fa-solid fa-circle-info"></i> Reporta el volumen de ancho de banda consumido en Gigabits por segundo (Gbps).
+                        </div>
+                    </div>
+
+                    <!-- Chart 6: SSL TPS -->
+                    <div class="glass-card graph-card" data-cat="ssl" id="card-chart-ssl">
+                        <div class="graph-card-header">
+                            <span class="graph-card-title">Transacciones SSL (TPS)</span>
+                            <span class="graph-card-subtitle">Intercambios y negociaciones de certificados por segundo</span>
+                        </div>
+                        <div class="graph-canvas-wrapper">
+                            <canvas id="chart-ssl-tps"></canvas>
+                        </div>
+                        <div class="graph-card-footer">
+                            <i class="fa-solid fa-circle-info"></i> Muestra la carga de desencriptación SSL/TLS procesada por hardware o software.
+                        </div>
+                    </div>
+
+                    <!-- Chart 7: HTTP Requests -->
+                    <div class="glass-card graph-card" data-cat="ssl" id="card-chart-http">
+                        <div class="graph-card-header">
+                            <span class="graph-card-title">Peticiones de Aplicación HTTP</span>
+                            <span class="graph-card-subtitle">Volumen de Requests/seg procesadas en Capa 7</span>
+                        </div>
+                        <div class="graph-canvas-wrapper">
+                            <canvas id="chart-http-reqs"></canvas>
+                        </div>
+                        <div class="graph-card-footer">
+                            <i class="fa-solid fa-circle-info"></i> Muestra la actividad del tráfico HTTP/HTTPS a nivel de transacciones web.
+                        </div>
+                    </div>
+
+                    <!-- Chart 8: Disk Partitions -->
+                    <div class="glass-card graph-card" data-cat="disco" id="card-chart-disk">
+                        <div class="graph-card-header">
+                            <span class="graph-card-title">Uso de Almacenamiento de Disco</span>
+                            <span class="graph-card-subtitle">Porcentaje ocupado en los volúmenes del sistema</span>
+                        </div>
+                        <div class="graph-canvas-wrapper">
+                            <canvas id="chart-disk-partitions"></canvas>
+                        </div>
+                        <div class="graph-card-footer">
+                            <i class="fa-solid fa-circle-info"></i> Verifica el espacio libre en directorios críticos como `/var/log` y `/config`.
+                        </div>
+                    </div>
+
+                    <!-- Chart 9: Disk IOPS -->
+                    <div class="glass-card graph-card" data-cat="disco" id="card-chart-iops">
+                        <div class="graph-card-header">
+                            <span class="graph-card-title">Operaciones de I/O de Disco</span>
+                            <span class="graph-card-subtitle">Velocidad de Lectura / Escritura en almacenamiento (IOPS)</span>
+                        </div>
+                        <div class="graph-canvas-wrapper">
+                            <canvas id="chart-disk-iops"></canvas>
+                        </div>
+                        <div class="graph-card-footer">
+                            <i class="fa-solid fa-circle-info"></i> Evalúa la velocidad de transferencia y latencia de escritura del sistema de archivos.
+                        </div>
+                    </div>
+
                 </div>
             </div>
 

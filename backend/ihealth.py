@@ -249,3 +249,34 @@ class iHealthClient:
         response.raise_for_status()
         return response.content
 
+    def get_qkview_graphs(self, qkview_id):
+        """Get the list of graphs from iHealth API"""
+        print(f"[iHealth] Descargando listado de gráficas para el ID: {qkview_id}...")
+        token = self.get_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "User-Agent": "iHealthWatcherBackend/1.0"
+        }
+        url = f"{API_BASE_URL}/qkviews/{qkview_id}/graphs"
+        response = requests.get(url, headers=headers, timeout=30)
+        if response.status_code != 200:
+            print(f"[iHealth] El listado de gráficas no está disponible (Código: {response.status_code})")
+            return None
+        return response.json()
+
+    def get_qkview_graph_data(self, qkview_id, graph_id):
+        """Get specific graph data from iHealth API"""
+        print(f"[iHealth] Descargando datos de la gráfica '{graph_id}' para el ID: {qkview_id}...")
+        token = self.get_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "User-Agent": "iHealthWatcherBackend/1.0"
+        }
+        url = f"{API_BASE_URL}/qkviews/{qkview_id}/graphs/{graph_id}"
+        response = requests.get(url, headers=headers, timeout=30)
+        if response.status_code != 200:
+            return None
+        return response.json()
+

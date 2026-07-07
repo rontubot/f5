@@ -414,6 +414,34 @@ async def get_device_command_content(hostname: str, command_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al descargar contenido del comando: {str(e)}")
 
+# Endpoints: QKView Graphs Performance
+@app.get("/api/devices/{hostname}/graphs", summary="Get performance graphs from iHealth or fallback status")
+async def get_device_graphs_list(hostname: str):
+    qkview_id = resolve_qkview_id(hostname)
+    if not qkview_id:
+        return {"available": False, "source": "simulated", "reason": "No qkview_id resolved"}
+    try:
+        graphs_data = ihealth_client.get_qkview_graphs(qkview_id)
+        if not graphs_data:
+            return {"available": False, "source": "simulated", "reason": "Graphs not available in iHealth API"}
+        return {"available": True, "source": "ihealth", "data": graphs_data}
+    except Exception as e:
+        print(f"[main] Error fetching graphs for {hostname}: {e}")
+        return {"available": False, "source": "simulated", "reason": str(e)}
+
+@app.get("/api/devices/{hostname}/graphs/{graph_id}", summary="Get data for a specific iHealth graph")
+async def get_device_graph_data(hostname: str, graph_id: str):
+    qkview_id = resolve_qkview_id(hostname)
+    if not qkview_id:
+        raise HTTPException(status_code=404, detail="No qkview_id resolved")
+    try:
+        graph_data = ihealth_client.get_qkview_graph_data(qkview_id, graph_id)
+        if not graph_data:
+            raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found or empty")
+        return graph_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Mount static frontend files
 # When deployed on Railway, the frontend is inside the backend directory
 FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "frontend"))
