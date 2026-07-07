@@ -319,6 +319,7 @@ async def get_test_graphs(hostname: str):
         }
     except Exception as e:
         return {"error": str(e)}
+
 @app.get("/api/devices/{hostname}/files", summary="Get list of files contained in the QKView")
 async def get_device_files(hostname: str):
     qkview_id = resolve_qkview_id(hostname)
@@ -344,7 +345,13 @@ async def get_device_files(hostname: str):
             f_id = f.get("id") or f.get("id_hash") or f.get("hash")
             f_name = f.get("name") or f.get("value") or f.get("path") or f.get("file_path") or ""
             if f_id and f_name:
-                normalized.append({"id": str(f_id), "name": str(f_name)})
+                normalized.append({
+                    "id": str(f_id), 
+                    "name": str(f_name),
+                    "size": f.get("size"),
+                    "permissions": f.get("permissions"),
+                    "lastModified": f.get("lastModified")
+                })
                 
         # Ordenar alfabéticamente por nombre
         normalized.sort(key=lambda x: x["name"])
@@ -353,7 +360,7 @@ async def get_device_files(hostname: str):
         raise HTTPException(status_code=500, detail=f"Error al obtener archivos de iHealth: {str(e)}")
 
 @app.get("/api/devices/{hostname}/files/{file_id:path}", summary="Get content of a specific log file in the QKView")
-async def get_device_file_content(hostname: str, file_id: str):
+async def get_device_file_content(hostname: str, file_id: str, limit_lines: int = 2500):
     qkview_id = resolve_qkview_id(hostname)
     if not qkview_id:
         raise HTTPException(status_code=404, detail=f"No se pudo resolver el QKView ID para el dispositivo '{hostname}'.")
@@ -363,7 +370,21 @@ async def get_device_file_content(hostname: str, file_id: str):
             text_content = content.decode("utf-8")
         except UnicodeDecodeError:
             text_content = content.decode("latin-1", errors="replace")
-        return {"content": text_content}
+            
+        lines = text_content.split("\n")
+        total_lines = len(lines)
+        
+        truncated = False
+        if limit_lines and total_lines > limit_lines:
+            text_content = "\n".join(lines[:limit_lines])
+            truncated = True
+            
+        return {
+            "content": text_content, 
+            "total_lines": total_lines, 
+            "truncated": truncated, 
+            "limit": limit_lines
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al descargar contenido del archivo: {str(e)}")
 
@@ -400,7 +421,7 @@ async def get_device_commands(hostname: str):
         raise HTTPException(status_code=500, detail=f"Error al obtener comandos de iHealth: {str(e)}")
 
 @app.get("/api/devices/{hostname}/commands/{command_id}", summary="Get content of a specific command output in the QKView")
-async def get_device_command_content(hostname: str, command_id: str):
+async def get_device_command_content(hostname: str, command_id: str, limit_lines: int = 2500):
     qkview_id = resolve_qkview_id(hostname)
     if not qkview_id:
         raise HTTPException(status_code=404, detail=f"No se pudo resolver el QKView ID para el dispositivo '{hostname}'.")
@@ -410,7 +431,21 @@ async def get_device_command_content(hostname: str, command_id: str):
             text_content = content.decode("utf-8")
         except UnicodeDecodeError:
             text_content = content.decode("latin-1", errors="replace")
-        return {"content": text_content}
+            
+        lines = text_content.split("\n")
+        total_lines = len(lines)
+        
+        truncated = False
+        if limit_lines and total_lines > limit_lines:
+            text_content = "\n".join(lines[:limit_lines])
+            truncated = True
+            
+        return {
+            "content": text_content, 
+            "total_lines": total_lines, 
+            "truncated": truncated, 
+            "limit": limit_lines
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al descargar contenido del comando: {str(e)}")
 

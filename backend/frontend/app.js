@@ -956,8 +956,9 @@ function renderLogItems() {
             el.classList.add("selected");
         }
         
+        const sizeText = item.size ? ` (${(item.size / (1024 * 1024)).toFixed(2)} MB)` : "";
         el.innerHTML = `
-            <div class="selector-alert-item-title" style="max-width: 100%;" title="${item.name}">${item.name}</div>
+            <div class="selector-alert-item-title" style="max-width: 100%;" title="${item.name}">${item.name}${sizeText}</div>
         `;
         
         el.addEventListener("click", () => {
@@ -980,25 +981,7 @@ async function loadLogItemContent(item) {
     viewerContainer.innerHTML = `<div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin fa-2x"></i> Cargando contenido...</div>`;
     document.getElementById("log-viewer-title").innerText = item.name;
     
-    // Renderizar metadatos del archivo si existen
     const metadataContainer = document.getElementById("log-viewer-metadata");
-    if (metadataContainer) {
-        if (currentLogType === "files") {
-            const sizeFormatted = item.size ? (item.size / (1024 * 1024)).toFixed(2) + " MB" : "Desconocido";
-            const perms = item.permissions || "Desconocido";
-            const modified = item.lastModified || "Desconocido";
-            metadataContainer.innerHTML = `
-                <span class="badge badge-info" style="text-transform: none; font-size: 11px;">Tamaño: ${sizeFormatted}</span>
-                <span class="badge badge-info" style="text-transform: none; font-size: 11px;">Permisos: ${perms}</span>
-                <span class="badge badge-info" style="text-transform: none; font-size: 11px;">Última Modificación: ${modified}</span>
-            `;
-            metadataContainer.classList.remove("hidden");
-        } else {
-            metadataContainer.innerHTML = "";
-            metadataContainer.classList.add("hidden");
-        }
-    }
-    
     const btnDownload = document.getElementById("btn-download-log");
     if (btnDownload) btnDownload.disabled = true;
     
@@ -1009,6 +992,33 @@ async function loadLogItemContent(item) {
         
         const data = await response.json();
         rawLogContent = data.content || "";
+        
+        if (metadataContainer) {
+            if (currentLogType === "files") {
+                const sizeFormatted = item.size ? (item.size / (1024 * 1024)).toFixed(2) + " MB" : "Desconocido";
+                const perms = item.permissions || "Desconocido";
+                const modified = item.lastModified || "Desconocido";
+                let truncateAlert = "";
+                if (data.truncated) {
+                    truncateAlert = `<span class="badge badge-warning" style="text-transform: none; font-size: 11px; background-color: var(--color-warning); color: #000; border-color: var(--color-warning);"><i class="fa-solid fa-triangle-exclamation"></i> Mostrando primeras ${data.limit.toLocaleString()} líneas de ${data.total_lines.toLocaleString()}</span>`;
+                }
+                metadataContainer.innerHTML = `
+                    <span class="badge badge-info" style="text-transform: none; font-size: 11px;">Tamaño: ${sizeFormatted}</span>
+                    <span class="badge badge-info" style="text-transform: none; font-size: 11px;">Permisos: ${perms}</span>
+                    <span class="badge badge-info" style="text-transform: none; font-size: 11px;">Modificado: ${modified}</span>
+                    ${truncateAlert}
+                `;
+                metadataContainer.classList.remove("hidden");
+            } else {
+                if (data.truncated) {
+                    metadataContainer.innerHTML = `<span class="badge badge-warning" style="text-transform: none; font-size: 11px; background-color: var(--color-warning); color: #000; border-color: var(--color-warning);"><i class="fa-solid fa-triangle-exclamation"></i> Mostrando primeras ${data.limit.toLocaleString()} líneas de ${data.total_lines.toLocaleString()}</span>`;
+                    metadataContainer.classList.remove("hidden");
+                } else {
+                    metadataContainer.innerHTML = "";
+                    metadataContainer.classList.add("hidden");
+                }
+            }
+        }
         
         if (btnDownload) btnDownload.disabled = false;
         renderLogContent();
