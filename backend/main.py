@@ -280,7 +280,6 @@ async def get_diagnostics(hostname: str):
 async def health():
     return {"status": "healthy", "time": time.time()}
 
-# Endpoints: QKView Files & Commands Logs Explorer
 @app.get("/api/test-raw-files/{hostname}")
 async def get_test_raw_files(hostname: str):
     qkview_id = resolve_qkview_id(hostname)
@@ -300,6 +299,26 @@ async def get_test_raw_files(hostname: str):
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/test-graphs/{hostname}")
+async def get_test_graphs(hostname: str):
+    qkview_id = resolve_qkview_id(hostname)
+    if not qkview_id:
+        return {"error": "no qkview_id resolved"}
+    try:
+        token = ihealth_client.get_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "User-Agent": "iHealthWatcherBackend/1.0"
+        }
+        url = f"https://ihealth2-api.f5.com/qkview-analyzer/api/qkviews/{qkview_id}/graphs"
+        response = requests.get(url, headers=headers, timeout=30)
+        return {
+            "status_code": response.status_code,
+            "data": response.json() if response.status_code == 200 else response.text
+        }
+    except Exception as e:
+        return {"error": str(e)}
 @app.get("/api/devices/{hostname}/files", summary="Get list of files contained in the QKView")
 async def get_device_files(hostname: str):
     qkview_id = resolve_qkview_id(hostname)
