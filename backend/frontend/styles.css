@@ -1119,13 +1119,13 @@ body.dark-mode {
     grid-template-columns: repeat(3, 1fr);
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1450px) {
     .graphs-grid.detailed-layout {
         grid-template-columns: repeat(2, 1fr);
     }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 850px) {
     .graphs-grid.detailed-layout {
         grid-template-columns: 1fr;
     }
@@ -1138,6 +1138,8 @@ body.dark-mode {
     padding: 20px;
     min-height: 330px;
     height: 100%;
+    min-width: 0; /* Evitar que el contenedor infle el grid */
+    overflow: hidden; /* Evitar desbordamientos de canvas */
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
@@ -1170,9 +1172,10 @@ body.dark-mode {
 
 .graph-canvas-wrapper {
     position: relative;
-    flex-grow: 1;
     width: 100%;
+    height: 220px; /* Altura fija para evitar reflows de Chart.js */
     min-height: 200px;
+    overflow: hidden;
 }
 
 .graph-card-footer {
