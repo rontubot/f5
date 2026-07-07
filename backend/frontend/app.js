@@ -60,6 +60,7 @@ let selectedLogItemName = "";
 let logSearchQuery = "";
 let logTextSearchQuery = "";
 let rawLogContent = "";
+let hasDevices = false;
 
 // --- 2. Inicialización del Dashboard ---
 document.addEventListener("DOMContentLoaded", () => {
@@ -107,10 +108,24 @@ async function loadRealDevices() {
         selector.innerHTML = ""; // Limpiar selector
         
         if (devices.length === 0) {
+            hasDevices = false;
             selector.innerHTML = `<option value="">Sin dispositivos</option>`;
+            document.getElementById("lbl-hostname").innerText = "Ninguno";
+            document.getElementById("lbl-last-scan").innerText = "No hay escaneos disponibles";
+            document.getElementById("lbl-health-score").innerText = "0";
+            document.getElementById("lbl-critical-count").innerText = "0";
+            document.getElementById("lbl-warning-count").innerText = "0";
+            document.getElementById("lbl-cve-count").innerText = "0";
+            setProgressRing(0);
+            
+            const emptyHistory = { labels: ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"], cpu: [0,0,0,0,0,0,0], ram: [0,0,0,0,0,0,0] };
+            initResourceChart(emptyHistory);
+            initConnectionsChart({ labels: ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"], active: [0,0,0,0,0,0,0] });
+            
             document.getElementById("alerts-list").innerHTML = `<div class="loading-spinner"><i class="fa-solid fa-triangle-exclamation"></i> Conectado a Railway, pero aún no se han subido QKViews desde el F5.</div>`;
             return;
         }
+        hasDevices = true;
 
         devices.forEach(dev => {
             const opt = document.createElement("option");
@@ -298,6 +313,7 @@ async function loadRealDeviceData(hostname) {
 
 // Carga en Modo Demostración (Offline)
 function loadMockData() {
+    hasDevices = true;
     const selector = document.getElementById("device-selector");
     selector.innerHTML = `<option value="bigip-01.local">bigip-01.local (Modo Demo)</option>`;
     
@@ -1541,7 +1557,21 @@ function drawGraph(canvasId, config) {
 
 function loadDeviceGraphs() {
     const hostname = document.getElementById("lbl-hostname").innerText;
-    if (!hostname || hostname === "Cargando...") return;
+    
+    // Si no hay dispositivos cargados o está cargando, mostrar placeholder y no renderizar gráficas
+    if (!hasDevices || !hostname || hostname === "Cargando..." || hostname === "Ninguno") {
+        const container = document.getElementById("graphs-grid-container");
+        if (container) {
+            container.innerHTML = `
+                <div class="glass-card" style="grid-column: 1 / -1; min-height: 380px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 40px; color: var(--text-muted);">
+                    <i class="fa-solid fa-chart-line fa-4x" style="margin-bottom: 20px; color: var(--border-color); opacity: 0.5;"></i>
+                    <h3 style="color: #fff; margin-bottom: 8px; font-weight: 700;">No hay gráficas disponibles</h3>
+                    <p style="max-width: 450px; font-size: 13.5px; line-height: 1.6; margin: 0 auto;">Carga y analiza un archivo de diagnóstico QKView en la pestaña "Vista General" para poblar los gráficos de rendimiento y red.</p>
+                </div>
+            `;
+        }
+        return;
+    }
     
     setupGraphsTabControls();
     
