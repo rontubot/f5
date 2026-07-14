@@ -13,7 +13,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="styles.css?v=1.1.6">
+    <link rel="stylesheet" href="styles.css?v=1.1.7">
 </head>
 <body class="dark-mode">
     <div class="app-container">
@@ -59,7 +59,10 @@
             <!-- Top Header -->
             <header class="header">
                 <div class="header-title-area">
-                    <h1>F5 BIG-IP: <span id="lbl-hostname" class="text-gradient">Cargando...</span></h1>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <h1 style="margin: 0;">F5 BIG-IP: <span id="lbl-hostname" class="text-gradient">Cargando...</span></h1>
+                        <i class="fa-solid fa-arrows-spin fa-spin hidden" id="header-processing-spinner" style="color: var(--accent-primary); font-size: 20px;" title="Procesando QKView..."></i>
+                    </div>
                     <p class="subtitle">Último diagnóstico procesado: <span id="lbl-last-scan">...</span></p>
                 </div>
                 <div class="header-actions">
@@ -922,6 +925,6 @@
     </div>
     
     <!-- Custom JS -->
-    <script src="app.js?v=1.1.6"></script>
+    <script src="app.js?v=1.1.7"></script>
 </body>
 </html>

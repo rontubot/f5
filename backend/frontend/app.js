@@ -205,6 +205,13 @@ async function loadRealDeviceData(hostname) {
         document.getElementById("lbl-hostname").innerText = devMeta.hostname;
         document.getElementById("lbl-last-scan").innerText = devMeta.last_scan;
         
+        const headerSpinner = document.getElementById("header-processing-spinner");
+        if (devMeta.status === "processing") {
+            if (headerSpinner) headerSpinner.classList.remove("hidden");
+        } else {
+            if (headerSpinner) headerSpinner.classList.add("hidden");
+        }
+        
         // --- Escenario 1: El dispositivo está procesando el QKView en iHealth ---
         if (devMeta.status === "processing") {
             document.getElementById("lbl-health-score").innerText = "--";
@@ -1687,8 +1694,10 @@ function handleFileUpload(file) {
     
     if (!progressContainer) return;
     
-    // Mostrar interfaz de carga
+    // Mostrar interfaz de carga y spinner de cabecera
     progressContainer.classList.remove("hidden");
+    const headerSpinner = document.getElementById("header-processing-spinner");
+    if (headerSpinner) headerSpinner.classList.remove("hidden");
     filenameLabel.innerText = file.name;
     percentLabel.innerText = "0%";
     progressBar.style.width = "0%";
