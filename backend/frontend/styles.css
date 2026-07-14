@@ -29,6 +29,10 @@
     --transition-normal: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.hidden {
+    display: none !important;
+}
+
 * {
     margin: 0;
     padding: 0;
