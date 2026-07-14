@@ -71,6 +71,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupCveFilters();
     setupLogExplorerEvents();
     setupDragAndDrop();
+    setupDateTimePickers();
     // Mantener la página sincronizada en vivo de forma constante cada 30 segundos
     setInterval(() => {
         if (isBackendOnline && !rapidPollingInterval) {
@@ -2892,6 +2893,24 @@ function setupLogSearchEvents() {
             a.click();
         };
     }
+}
+
+function setupDateTimePickers() {
+    // Escuchar clicks en el wrapper para abrir el selector nativo cómodamente
+    document.addEventListener("click", (e) => {
+        const wrapper = e.target.closest(".datetime-picker-wrapper");
+        if (wrapper) {
+            const input = wrapper.querySelector("input");
+            // Evitar bucle si ya se hizo click en el input
+            if (input && e.target !== input) {
+                try {
+                    input.showPicker();
+                } catch (err) {
+                    input.focus();
+                }
+            }
+        }
+    });
 }
 
 
