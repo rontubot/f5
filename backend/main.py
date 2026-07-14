@@ -233,6 +233,15 @@ async def upload_qkview(
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
+    # Borrar caché anterior de logs de búsqueda para este host si existe
+    cache_path = os.path.join(DB_DIR, f"{hostname}_search_logs.json")
+    if os.path.exists(cache_path):
+        try:
+            os.remove(cache_path)
+            print(f"[Upload] Invalido cache de logs para {hostname}")
+        except Exception as e:
+            print(f"[Upload] Error borrando cache de logs: {e}")
+         
     # Immediately register/update the device as "processing" in the database
     devices = load_devices()
     devices[hostname] = {
@@ -388,13 +397,125 @@ async def get_test_graphs(hostname: str):
     except Exception as e:
         return {"error": str(e)}
 
+def parse_real_syslog_lines(log_name: str, content_bytes: bytes) -> list:
+    import re
+    import datetime
+    
+    try:
+        text = content_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        text = content_bytes.decode("latin-1", errors="replace")
+        
+    lines = text.split("\n")
+    parsed_lines = []
+    
+    # Cache del último timestamp válido para líneas de continuación que carecen de fecha
+    last_ts_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.000 -07:00")
+    
+    for line in lines:
+        if not line.strip():
+            continue
+            
+        level = "Info"
+        line_lower = line.lower()
+        if "crit" in line_lower or "emerg" in line_lower or "alert" in line_lower or "err" in line_lower:
+            level = "Error"
+        elif "warn" in line_lower or "warning" in line_lower:
+            level = "Warning"
+        elif "notice" in line_lower:
+            level = "Notice"
+        elif "debug" in line_lower:
+            level = "Debug"
+            
+        ts_str = ""
+        # 1. Intentar ISO timestamp al inicio: 2026-07-14T14:24:31.885-07:00
+        iso_match = re.match(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))', line)
+        if iso_match:
+            ts_str = iso_match.group(1).replace("T", " ")
+        else:
+            # 2. Intentar Syslog timestamp standard al inicio: Mar 11 14:50:15
+            syslog_match = re.match(r'^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)', line)
+            if syslog_match:
+                ts_str = syslog_match.group(1)
+                # Anteponer el año actual para consistencia en filtros temporales
+                ts_str = f"2026-{ts_str}"
+                
+        if ts_str:
+            last_ts_str = ts_str
+        else:
+            ts_str = last_ts_str
+            
+        parsed_lines.append({
+            "log": log_name,
+            "timestamp": ts_str,
+            "level": level,
+            "message": line
+        })
+        
+    return parsed_lines
+
 @app.get("/api/devices/{hostname}/logs/search", summary="Get merged chronological logs for search console")
 async def search_device_logs(hostname: str):
+    import json
+    
+    qkview_id = resolve_qkview_id(hostname)
+    
+    if qkview_id:
+        cache_path = os.path.join(DB_DIR, f"{hostname}_search_logs.json")
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"[LogSearch] Error leyendo caché de logs: {e}")
+                
+        # Descargar de iHealth
+        try:
+            print(f"[LogSearch] Descargando logs reales para {hostname} ({qkview_id})...")
+            files_data = ihealth_client.get_qkview_files(qkview_id)
+            
+            relevant_logs = {
+                "ltm": "/var/log/ltm",
+                "messages": "/var/log/messages",
+                "secure": "/var/log/secure",
+                "icrd": "/var/log/icrd"
+            }
+            
+            log_ids = {}
+            for f in files_data:
+                f_name = f.get("name", "")
+                f_id = f.get("id", "")
+                if f_name and f_id:
+                    for log_key, log_path in relevant_logs.items():
+                        if f_name == log_path or f_name.endswith(log_path):
+                            log_ids[log_key] = f_id
+            
+            merged_logs = []
+            for log_key, file_id in log_ids.items():
+                try:
+                    content_bytes = ihealth_client.get_qkview_file_content(qkview_id, file_id)
+                    parsed = parse_real_syslog_lines(log_key, content_bytes)
+                    merged_logs.extend(parsed)
+                    print(f"[LogSearch] {log_key}: {len(parsed)} líneas parseadas.")
+                except Exception as ex:
+                    print(f"[LogSearch] Error procesando {log_key}: {ex}")
+            
+            if merged_logs:
+                # Ordenar cronológicamente (más recientes primero)
+                merged_logs.sort(key=lambda x: x["timestamp"], reverse=True)
+                
+                # Escribir en caché
+                with open(cache_path, "w", encoding="utf-8") as f:
+                    json.dump(merged_logs, f, ensure_ascii=False, indent=2)
+                    
+                return merged_logs
+        except Exception as e:
+            print(f"[LogSearch] Error descargando desde API de F5 iHealth: {e}")
+
+    # Fallback / Escenario de simulación (si no hay QKView real o falló la descarga)
     import random
-    # Simulated high fidelity logs for the search table (matching user's screenshots exactly)
     logs_pool = []
     
-    # 1. icrd logs
     icrd_msgs = [
         "icrd_child[25170]: 25170,25170, RestQueue, INFO,Creating 4 threads to process requests",
         "icrd_child[25171]: 25171,25171, RestQueue, INFO,Creating 4 threads to process requests",
@@ -406,7 +527,6 @@ async def search_device_logs(hostname: str):
         "icrd_child[25172]: RestQueue, INFO,Servicing request from localhost for token generation"
     ]
     
-    # 2. ltm logs
     ltm_msgs = [
         "tmm[12044]: 01010029:5: Clock advanced by 132 ticks",
         "sod[11045]: 01140029:5: HA sod_active_state_event: Sod transitioning to ACTIVE",
@@ -419,7 +539,6 @@ async def search_device_logs(hostname: str):
         "mcpd[8840]: 01070425:3: CMI peer connection lost for 10.10.2.14"
     ]
     
-    # 3. messages logs
     messages_msgs = [
         "systemd[1]: Started System Logging Service.",
         "smartd[6500]: Device: /dev/sda, [Intel SSD], S.M.A.R.T. KeepAlive successful.",
@@ -431,7 +550,6 @@ async def search_device_logs(hostname: str):
         "chassisd[8901]: Chassis temperature: 38 C"
     ]
     
-    # 4. secure logs
     secure_msgs = [
         "sshd[24001]: Accepted publickey for admin from 192.168.10.45 port 55420 ssh2",
         "sshd[24001]: pam_unix(sshd:session): session opened for user admin by (uid=0)",
@@ -443,9 +561,7 @@ async def search_device_logs(hostname: str):
         "sshd[24300]: Failed password for invalid user support from 192.168.50.12 port 38221 ssh2"
     ]
     
-    # Generar timestamps coherentes con la fecha de generación
-    # Usaremos 2026-03-11 14:50:15 como base y restaremos segundos
-    base_time = time.time() - (3600 * 2) # Hace 2 horas
+    base_time = time.time() - (3600 * 2)
     
     log_types = {
         "icrd": icrd_msgs,
@@ -454,21 +570,17 @@ async def search_device_logs(hostname: str):
         "secure": secure_msgs
     }
     
-    # Generar 1000 registros mezclados
-    random.seed(hostname) # Seed para que sea estable por hostname
+    random.seed(hostname)
     for i in range(1500):
         log_file = random.choice(list(log_types.keys()))
         msg_template = random.choice(log_types[log_file])
         
-        # timestamp descendente
         ts_val = base_time - (i * random.randint(1, 15))
         ts_struct = time.localtime(ts_val)
         
-        # Formato exacto con milisegundo: 2026-03-11 14:50:15.000 -07:00
         ms = random.randint(0, 999)
         ts_str = time.strftime("%Y-%m-%d %H:%M:%S", ts_struct) + f".{ms:03d} -07:00"
         
-        # Determinar nivel
         level = "Info"
         if "DOWN" in msg_template or "lost" in msg_template or "Failed" in msg_template or "Invalid" in msg_template:
             level = "Error"
