@@ -2762,18 +2762,21 @@ function setupLogSearchEvents() {
         };
     }
     
-    // 2. Dropdown de selección de logs
+    // 2. Dropdown de selección de logs (Buscador)
     const selectBtn = document.getElementById("btn-logsearch-select-logs");
     const dropdownList = document.getElementById("logsearch-select-dropdown-list");
     if (selectBtn && dropdownList) {
         selectBtn.onclick = (e) => {
-            e.stopPropagation();
             dropdownList.classList.toggle("hidden");
         };
         
         document.addEventListener("click", (e) => {
-            if (!dropdownList.classList.contains("hidden") && !dropdownList.contains(e.target) && e.target !== selectBtn) {
-                dropdownList.classList.add("hidden");
+            if (!dropdownList.classList.contains("hidden")) {
+                const clickedButton = selectBtn.contains(e.target);
+                const clickedDropdown = dropdownList.contains(e.target);
+                if (!clickedButton && !clickedDropdown) {
+                    dropdownList.classList.add("hidden");
+                }
             }
         });
     }
