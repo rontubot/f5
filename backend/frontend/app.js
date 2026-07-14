@@ -61,6 +61,7 @@ let logSearchQuery = "";
 let logTextSearchQuery = "";
 let rawLogContent = "";
 let hasDevices = false;
+let currentLogFileCategory = "all";
 
 // --- 2. Inicialización del Dashboard ---
 document.addEventListener("DOMContentLoaded", () => {
@@ -102,9 +103,37 @@ async function loadRealDevices() {
     try {
         const response = await fetch(`${BACKEND_API_URL}/api/devices`);
         const devices = await response.json();
-        currentDevices = devices;
+        
+        // Verificar si la lista o sus estados realmente cambiaron
+        let listChanged = false;
+        if (!currentDevices || currentDevices.length !== devices.length) {
+            listChanged = true;
+        } else {
+            for (let i = 0; i < devices.length; i++) {
+                const d1 = devices[i];
+                const d2 = currentDevices.find(d => d.hostname === d1.hostname);
+                if (!d2 || d2.status !== d1.status) {
+                    listChanged = true;
+                    break;
+                }
+            }
+        }
+        
+        if (!listChanged) {
+            // No hay cambios, salir de forma segura para no perturbar el visor ni las gráficas
+            return;
+        }
         
         const selector = document.getElementById("device-selector");
+        const prevSelected = selector ? selector.value : "";
+        
+        // Buscar el estado anterior del dispositivo seleccionado
+        const prevDev = currentDevices ? currentDevices.find(d => d.hostname === prevSelected) : null;
+        const prevStatus = prevDev ? prevDev.status : null;
+        
+        currentDevices = devices;
+        
+        if (!selector) return;
         selector.innerHTML = ""; // Limpiar selector
         
         if (devices.length === 0) {
@@ -138,11 +167,20 @@ async function loadRealDevices() {
             selector.appendChild(opt);
         });
 
-        // Cargar datos del primer dispositivo
-        loadRealDeviceData(devices[0].hostname);
-
-        // Event listener para el selector
+        // Determinar qué dispositivo cargar preservando la selección anterior
+        const currentDev = devices.find(d => d.hostname === prevSelected);
+        if (currentDev) {
+            selector.value = prevSelected;
+            // Si el estado del análisis cambió (ej: terminó de procesarse), recargar datos
+            if (currentDev.status !== prevStatus) {
+                loadRealDeviceData(prevSelected);
+            }
+        } else {
+            selector.value = devices[0].hostname;
+            loadRealDeviceData(devices[0].hostname);
+        }
         selector.onchange = (e) => loadRealDeviceData(e.target.value);
+
 
         // Si hay algún dispositivo procesándose, programar sondeo automático en 8 segundos
         const hasProcessing = devices.some(dev => dev.status === "processing");
@@ -942,7 +980,17 @@ function renderLogItems() {
     
     listContainer.innerHTML = "";
     const query = logSearchQuery.trim().toLowerCase();
-    const filtered = allLogItems.filter(item => item.name.toLowerCase().includes(query));
+    
+    // Filtrar por categoría de archivo y por búsqueda de texto
+    let filtered = allLogItems.filter(item => {
+        if (!item.name.toLowerCase().includes(query)) return false;
+        
+        if (currentLogFileCategory === "all") return true;
+        if (currentLogFileCategory === "varlog") return item.name.startsWith("/var/log/") || item.name.includes("var/log");
+        if (currentLogFileCategory === "config") return item.name.startsWith("/config/") || item.name.includes("config/");
+        if (currentLogFileCategory === "xml") return item.name.endsWith(".xml");
+        return true;
+    });
     
     if (filtered.length === 0) {
         listContainer.innerHTML = `<div class="loading-spinner"><i class="fa-solid fa-info-circle"></i> Ningún archivo coincide.</div>`;
@@ -982,6 +1030,9 @@ async function loadLogItemContent(item) {
     document.getElementById("log-viewer-title").innerText = item.name;
     
     const metadataContainer = document.getElementById("log-viewer-metadata");
+    const filtersContainer = document.getElementById("log-level-filters-container");
+    if (filtersContainer) filtersContainer.classList.add("hidden"); // Ocultar filtros mientras carga
+    
     const btnDownload = document.getElementById("btn-download-log");
     if (btnDownload) btnDownload.disabled = true;
     
@@ -992,6 +1043,8 @@ async function loadLogItemContent(item) {
         
         const data = await response.json();
         rawLogContent = data.content || "";
+        
+        if (filtersContainer) filtersContainer.classList.remove("hidden"); // Mostrar filtros tras carga exitosa
         
         if (metadataContainer) {
             if (currentLogType === "files") {
@@ -1024,6 +1077,7 @@ async function loadLogItemContent(item) {
         renderLogContent();
     } catch (err) {
         console.error("Error al descargar contenido del log:", err);
+        if (filtersContainer) filtersContainer.classList.add("hidden");
         viewerContainer.innerHTML = `
             <div style="color: var(--color-critical); text-align: center; padding: 40px 20px;">
                 <i class="fa-solid fa-circle-xmark fa-3x" style="margin-bottom: 10px;"></i>
@@ -1043,6 +1097,13 @@ function renderLogContent() {
         return;
     }
     
+    // Obtener estados de los checkboxes
+    const showCrit = document.getElementById("chk-log-crit") ? document.getElementById("chk-log-crit").checked : true;
+    const showWarn = document.getElementById("chk-log-warn") ? document.getElementById("chk-log-warn").checked : true;
+    const showNotice = document.getElementById("chk-log-notice") ? document.getElementById("chk-log-notice").checked : true;
+    const showInfo = document.getElementById("chk-log-info") ? document.getElementById("chk-log-info").checked : true;
+    const showOthers = document.getElementById("chk-log-others") ? document.getElementById("chk-log-others").checked : true;
+
     let escaped = rawLogContent.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     
     // Aplicar resaltado si existe búsqueda interna
@@ -1053,20 +1114,43 @@ function renderLogContent() {
     }
     
     const lines = escaped.split("\n");
-    const processedLines = lines.map(line => {
-        if (line.includes("ERR") || line.includes("ERROR") || line.includes("crit") || line.includes("CRITICAL")) {
-            return `<span style="color: var(--color-critical); font-weight: 500;">${line}</span>`;
-        } else if (line.includes("WARN") || line.includes("WARNING")) {
-            return `<span style="color: var(--color-warning); font-weight: 500;">${line}</span>`;
-        } else if (line.includes("info") || line.includes("INFO")) {
-            return `<span style="color: var(--text-secondary);">${line}</span>`;
+    const processedLines = [];
+    
+    lines.forEach(line => {
+        let isCrit = line.includes("ERR") || line.includes("ERROR") || line.includes("crit") || line.includes("CRITICAL") || line.includes("emerg") || line.includes("alert") || line.includes("Emerg") || line.includes("Alert");
+        let isWarn = line.includes("WARN") || line.includes("WARNING") || line.includes("warning") || line.includes("Warn");
+        let isNotice = line.includes("notice") || line.includes("NOTICE") || line.includes("Notice");
+        let isInfo = line.includes("info") || line.includes("INFO") || line.includes("Info");
+        
+        let shouldShow = true;
+        let lineHtml = line;
+        
+        if (isCrit) {
+            shouldShow = showCrit;
+            lineHtml = `<span style="color: var(--color-critical); font-weight: 500;">${line}</span>`;
+        } else if (isWarn) {
+            shouldShow = showWarn;
+            lineHtml = `<span style="color: var(--color-warning); font-weight: 500;">${line}</span>`;
+        } else if (isNotice) {
+            shouldShow = showNotice;
+            lineHtml = `<span style="color: #38bdf8; font-weight: 500;">${line}</span>`;
+        } else if (isInfo) {
+            shouldShow = showInfo;
+            lineHtml = `<span style="color: var(--text-secondary);">${line}</span>`;
+        } else {
+            shouldShow = showOthers;
         }
-        return line;
+        
+        if (shouldShow) {
+            processedLines.push(lineHtml);
+        }
     });
     
-    viewerContainer.innerHTML = `
-        <pre class="log-output" style="max-height: 500px; height: 500px; text-align: left; width: 100%; margin-top: 0; font-size: 12px; border: 1px solid var(--border-color);">${processedLines.join("\n")}</pre>
-    `;
+    const displayHtml = processedLines.length > 0 
+        ? `<pre class="log-output" style="max-height: 500px; height: 500px; text-align: left; width: 100%; margin-top: 0; font-size: 12px; border: 1px solid var(--border-color);">${processedLines.join("\n")}</pre>`
+        : `<div style="padding: 40px; color: var(--text-muted); text-align: center;"><i class="fa-solid fa-filter-list fa-2x" style="margin-bottom:10px;"></i> No hay líneas coincidentes con los filtros de severidad.</div>`;
+        
+    viewerContainer.innerHTML = displayHtml;
 }
 
 function setupLogExplorerEvents() {
@@ -1079,12 +1163,19 @@ function setupLogExplorerEvents() {
             currentLogType = "files";
             btnFiles.classList.add("active");
             btnCmds.classList.remove("active");
+            
+            // Mostrar píldoras de categorías de archivo
+            const fileCatFilters = document.getElementById("log-file-category-filters");
+            if (fileCatFilters) fileCatFilters.classList.remove("hidden");
+            
             allLogItems = [];
             selectedLogItemId = null;
             selectedLogItemName = "";
             rawLogContent = "";
             document.getElementById("log-viewer-title").innerText = "Visor de Logs";
             const logContainer = document.getElementById("log-viewer-container");
+            const filtersContainer = document.getElementById("log-level-filters-container");
+            if (filtersContainer) filtersContainer.classList.add("hidden");
             if (logContainer) {
                 logContainer.innerHTML = `
                     <i class="fa-solid fa-file-lines fa-3x" style="margin-bottom: 15px; color: var(--border-color);"></i>
@@ -1099,12 +1190,19 @@ function setupLogExplorerEvents() {
             currentLogType = "commands";
             btnCmds.classList.add("active");
             btnFiles.classList.remove("active");
+            
+            // Ocultar píldoras de categorías de archivo en modo comando
+            const fileCatFilters = document.getElementById("log-file-category-filters");
+            if (fileCatFilters) fileCatFilters.classList.add("hidden");
+            
             allLogItems = [];
             selectedLogItemId = null;
             selectedLogItemName = "";
             rawLogContent = "";
             document.getElementById("log-viewer-title").innerText = "Visor de Comandos";
             const logContainer = document.getElementById("log-viewer-container");
+            const filtersContainer = document.getElementById("log-level-filters-container");
+            if (filtersContainer) filtersContainer.classList.add("hidden");
             if (logContainer) {
                 logContainer.innerHTML = `
                     <i class="fa-solid fa-terminal fa-3x" style="margin-bottom: 15px; color: var(--border-color);"></i>
@@ -1115,6 +1213,33 @@ function setupLogExplorerEvents() {
         });
     }
     
+    // Listeners para las píldoras de categoría de archivos
+    const catPills = document.getElementById("log-file-category-filters");
+    if (catPills) {
+        const buttons = catPills.querySelectorAll("button");
+        buttons.forEach(btn => {
+            btn.addEventListener("click", () => {
+                buttons.forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                currentLogFileCategory = btn.getAttribute("data-log-cat");
+                renderLogItems();
+            });
+        });
+    }
+    
+    // Listeners para los checkboxes de niveles de severidad
+    const chkIds = ["chk-log-crit", "chk-log-warn", "chk-log-notice", "chk-log-info", "chk-log-others"];
+    chkIds.forEach(id => {
+        const chk = document.getElementById(id);
+        if (chk) {
+            chk.addEventListener("change", () => {
+                if (rawLogContent) {
+                    renderLogContent();
+                }
+            });
+        }
+    });
+
     const logSearch = document.getElementById("log-search-input");
     if (logSearch) {
         logSearch.addEventListener("input", (e) => {

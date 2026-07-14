@@ -13,7 +13,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="styles.css?v=1.0.8">
+    <link rel="stylesheet" href="styles.css?v=1.1.0">
 </head>
 <body class="dark-mode">
     <div class="app-container">
@@ -349,6 +349,13 @@
                                 <i class="fa-solid fa-magnifying-glass"></i>
                                 <input type="text" id="log-search-input" placeholder="Buscar archivo o comando...">
                             </div>
+                            <!-- Categorías de archivo -->
+                            <div id="log-file-category-filters" class="filter-pills margin-top-15" style="display: flex; gap: 8px; flex-wrap: wrap; width: 100%;">
+                                <button class="pill-btn active" data-log-cat="all" style="padding: 4px 10px; font-size: 11px;">Todos</button>
+                                <button class="pill-btn" data-log-cat="varlog" style="padding: 4px 10px; font-size: 11px;">/var/log</button>
+                                <button class="pill-btn" data-log-cat="config" style="padding: 4px 10px; font-size: 11px;">/config</button>
+                                <button class="pill-btn" data-log-cat="xml" style="padding: 4px 10px; font-size: 11px;">XMLs</button>
+                            </div>
                         </div>
                         <div class="alerts-list-container margin-top-20" id="log-items-list" style="flex-grow: 1; max-height: 400px; overflow-y: auto;">
                             <div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i> Cargando...</div>
@@ -371,6 +378,27 @@
                                 <button class="btn-primary" id="btn-download-log" style="padding: 8px 16px; font-size: 13px;" disabled>
                                     <i class="fa-solid fa-download"></i> Descargar
                                 </button>
+                            </div>
+                        </div>
+                        <!-- Log severity level filters row -->
+                        <div id="log-level-filters-container" class="hidden" style="display: flex; align-items: center; gap: 15px; padding: 12px 24px; border-bottom: 1px solid var(--border-color); background-color: hsla(220, 20%, 12%, 0.4); flex-wrap: wrap; width: 100%; box-sizing: border-box;">
+                            <span style="font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Filtrar Niveles:</span>
+                            <div style="display: flex; gap: 14px; flex-wrap: wrap; align-items: center;">
+                                <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--color-critical); font-weight: 600; margin: 0;">
+                                    <input type="checkbox" id="chk-log-crit" checked style="accent-color: var(--color-critical); cursor: pointer;"> Error/Crit
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--color-warning); font-weight: 600; margin: 0;">
+                                    <input type="checkbox" id="chk-log-warn" checked style="accent-color: var(--color-warning); cursor: pointer;"> Warning
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: #38bdf8; font-weight: 600; margin: 0;">
+                                    <input type="checkbox" id="chk-log-notice" checked style="accent-color: #38bdf8; cursor: pointer;"> Notice
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--text-secondary); font-weight: 600; margin: 0;">
+                                    <input type="checkbox" id="chk-log-info" checked style="accent-color: var(--text-secondary); cursor: pointer;"> Info
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--text-muted); font-weight: 600; margin: 0;">
+                                    <input type="checkbox" id="chk-log-others" checked style="accent-color: var(--text-muted); cursor: pointer;"> Otros
+                                </label>
                             </div>
                         </div>
                         <div class="evidence-content" id="log-viewer-container" style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; color: var(--text-muted); text-align: center; padding: 20px; min-height: 380px;">
@@ -615,6 +643,6 @@
     </div>
     
     <!-- Custom JS -->
-    <script src="app.js?v=1.0.8"></script>
+    <script src="app.js?v=1.1.0"></script>
 </body>
 </html>
