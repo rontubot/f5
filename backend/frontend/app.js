@@ -1004,11 +1004,31 @@ function renderLogItems() {
             el.classList.add("selected");
         }
         
-        const sizeText = item.size ? ` (${(item.size / (1024 * 1024)).toFixed(2)} MB)` : "";
-        el.innerHTML = `
-            <div class="selector-alert-item-title" style="max-width: 100%;" title="${item.name}">${item.name}${sizeText}</div>
-        `;
+        let dateText = "";
+        if (item.lastModified) {
+            try {
+                const dateObj = new Date(item.lastModified);
+                if (!isNaN(dateObj.getTime())) {
+                    const pad = (num) => String(num).padStart(2, '0');
+                    const y = dateObj.getFullYear();
+                    const m = pad(dateObj.getMonth() + 1);
+                    const d = pad(dateObj.getDate());
+                    const hh = pad(dateObj.getHours());
+                    const mm = pad(dateObj.getMinutes());
+                    const ss = pad(dateObj.getSeconds());
+                    const ms = String(dateObj.getMilliseconds()).padStart(3, '0');
+                    dateText = ` (${d}/${m}/${y} ${hh}:${mm}:${ss}.${ms})`;
+                } else {
+                    dateText = ` (${item.lastModified})`;
+                }
+            } catch(e) {
+                dateText = ` (${item.lastModified})`;
+            }
+        }
         
+        el.innerHTML = `
+            <div class="selector-alert-item-title" style="max-width: 100%;" title="${item.name}">${item.name}${dateText}</div>
+        `;
         el.addEventListener("click", () => {
             document.querySelectorAll("#log-items-list .selector-alert-item").forEach(x => x.classList.remove("selected"));
             el.classList.add("selected");
