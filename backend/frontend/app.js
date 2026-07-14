@@ -269,6 +269,9 @@ async function loadRealDeviceData(hostname) {
         document.getElementById("lbl-cve-count").innerText = devMeta.stats.cves;
         setProgressRing(devMeta.health_score);
 
+        // Cargar y mostrar metadatos detallados de iHealth del dispositivo
+        await loadDeviceMetadata(hostname);
+
         // Llamar a la API para obtener el JSON completo de diagnósticos
         const response = await fetch(`${BACKEND_API_URL}/api/diagnostics/${hostname}`);
         const diagData = await response.json();
@@ -1866,6 +1869,14 @@ function createSeededRandom(seed) {
 function setupGraphsTabControls() {
     if (graphsListenersAttached) return;
     
+    // Inicializar la lista de seleccionados
+    if (!window.graphsSelectedList) {
+        window.graphsSelectedList = [
+            "card-chart-cpu", "card-chart-ram", "card-chart-conns", "card-chart-conn-rate",
+            "card-chart-throughput", "card-chart-ssl", "card-chart-http", "card-chart-disk", "card-chart-disk-io"
+        ];
+    }
+    
     // Listeners del selector de Vista (General vs Detallada)
     const btnGeneral = document.getElementById("btn-graph-view-general");
     const btnDetailed = document.getElementById("btn-graph-view-detailed");
@@ -1900,6 +1911,81 @@ function setupGraphsTabControls() {
         });
     }
     
+    // Drawer de Escoger Gráficas (Collapsible)
+    const btnToggleConfig = document.getElementById("btn-toggle-graphs-config");
+    const configDrawer = document.getElementById("graphs-config-drawer");
+    if (btnToggleConfig && configDrawer) {
+        btnToggleConfig.addEventListener("click", () => {
+            configDrawer.classList.toggle("hidden");
+        });
+    }
+    
+    // Toggle de Seleccionar/Deseccionar Todo
+    const chkAllToggle = document.getElementById("chk-graphs-all-toggle");
+    if (chkAllToggle) {
+        chkAllToggle.addEventListener("change", (e) => {
+            const isChecked = e.target.checked;
+            document.querySelectorAll(".chk-graph-item").forEach(chk => {
+                chk.checked = isChecked;
+            });
+        });
+    }
+    
+    // Aplicar filtro de selección de gráficas
+    const btnApplyFilters = document.getElementById("btn-apply-graphs-filter");
+    if (btnApplyFilters) {
+        btnApplyFilters.addEventListener("click", () => {
+            const selected = [];
+            document.querySelectorAll(".chk-graph-item").forEach(chk => {
+                if (chk.checked) {
+                    selected.push(chk.getAttribute("data-graph-card-id"));
+                }
+            });
+            window.graphsSelectedList = selected;
+            applyGraphFiltersAndLayout();
+            if (configDrawer) configDrawer.classList.add("hidden");
+        });
+    }
+    
+    // Selector de Intervalos Temporales (30d, 7d, 1d, 3h, Custom)
+    const timelineSelector = document.getElementById("graph-timeline-selector");
+    const customTimelineContainer = document.getElementById("graphs-custom-timeline-container");
+    if (timelineSelector) {
+        const buttons = timelineSelector.querySelectorAll("button");
+        buttons.forEach(btn => {
+            btn.addEventListener("click", () => {
+                buttons.forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                
+                const timeline = btn.getAttribute("data-timeline");
+                if (timeline) {
+                    window.currentGraphTimeline = timeline;
+                    if (customTimelineContainer) customTimelineContainer.classList.add("hidden");
+                    loadDeviceGraphs();
+                } else if (btn.id === "btn-timeline-custom") {
+                    window.currentGraphTimeline = "custom";
+                    if (customTimelineContainer) customTimelineContainer.classList.remove("hidden");
+                }
+            });
+        });
+    }
+    
+    // Aplicar rango temporal personalizado
+    const btnApplyCustomTime = document.getElementById("btn-apply-custom-timeline");
+    if (btnApplyCustomTime) {
+        btnApplyCustomTime.addEventListener("click", () => {
+            const startVal = document.getElementById("graph-time-start").value;
+            const endVal = document.getElementById("graph-time-end").value;
+            if (startVal && endVal) {
+                window.customGraphStartTime = new Date(startVal);
+                window.customGraphEndTime = new Date(endVal);
+                loadDeviceGraphs();
+            } else {
+                alert("Por favor, seleccione fecha y hora de inicio y fin.");
+            }
+        });
+    }
+    
     graphsListenersAttached = true;
 }
 
@@ -1931,6 +2017,11 @@ function applyGraphFiltersAndLayout() {
         
         // Ocultar si no pertenece a la categoría filtrada
         if (currentGraphCategory !== "all" && cat !== currentGraphCategory) {
+            visible = false;
+        }
+        
+        // Ocultar si no está seleccionada en el checkbox list
+        if (window.graphsSelectedList && !window.graphsSelectedList.includes(id)) {
             visible = false;
         }
         
@@ -2038,6 +2129,34 @@ function drawGraph(canvasId, config) {
     });
 }
 
+async function loadDeviceMetadata(hostname) {
+    const metaCard = document.getElementById("qkview-metadata-card");
+    if (!metaCard) return;
+    
+    try {
+        const response = await fetch(`${BACKEND_API_URL}/api/devices/${hostname}/metadata`);
+        if (!response.ok) throw new Error("Error fetching metadata");
+        const data = await response.json();
+        
+        document.getElementById("meta-product").innerText = data.product || "--";
+        document.getElementById("meta-platform").innerText = data.platform || "--";
+        document.getElementById("meta-hostname").innerText = data.hostname || hostname;
+        document.getElementById("meta-version").innerText = data.version || "--";
+        document.getElementById("meta-serial").innerText = data.serial_number || "--";
+        
+        const genDateEl = document.getElementById("meta-gendate-val");
+        if (genDateEl) genDateEl.innerText = data.generation_date || "--";
+        
+        document.getElementById("meta-case").innerText = data.support_case || "--";
+        document.getElementById("meta-desc").innerText = data.description || "--";
+        document.getElementById("meta-uploaddate").innerText = data.upload_date || "--";
+        metaCard.classList.remove("hidden");
+    } catch (err) {
+        console.error("Error loading device metadata:", err);
+        metaCard.classList.add("hidden");
+    }
+}
+
 function loadDeviceGraphs() {
     const hostname = document.getElementById("lbl-hostname").innerText;
     
@@ -2061,19 +2180,90 @@ function loadDeviceGraphs() {
     const seed = getSeedFromString(hostname);
     const rng = createSeededRandom(seed);
     
-    // Generar etiquetas de tiempo para las últimas 24 horas
+    // Configuración del eje X basado en el intervalo de tiempo seleccionado
+    let numPoints = 24;
     const labels = [];
-    for (let i = 23; i >= 0; i--) {
-        const d = new Date();
-        d.setHours(d.getHours() - i);
-        labels.push(`${d.getHours().toString().padStart(2, '0')}:00`);
+    const timeline = window.currentGraphTimeline || "30d";
+    
+    if (timeline === "3h") {
+        numPoints = 12; // 12 puntos cada 15 min
+        for (let i = 11; i >= 0; i--) {
+            const d = new Date();
+            d.setMinutes(d.getMinutes() - (i * 15));
+            const hh = String(d.getHours()).padStart(2, '0');
+            const mm = String(d.getMinutes()).padStart(2, '0');
+            const ss = String(d.getSeconds()).padStart(2, '0');
+            labels.push(`${hh}:${mm}:${ss}`);
+        }
+    } else if (timeline === "1d") {
+        numPoints = 24;
+        for (let i = 23; i >= 0; i--) {
+            const d = new Date();
+            d.setHours(d.getHours() - i);
+            labels.push(`${d.getHours().toString().padStart(2, '0')}:00`);
+        }
+    } else if (timeline === "7d") {
+        numPoints = 7;
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const dd = String(d.getDate()).padStart(2, '0');
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            labels.push(`${dd}/${mm}`);
+        }
+    } else if (timeline === "30d") {
+        numPoints = 30;
+        for (let i = 29; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const dd = String(d.getDate()).padStart(2, '0');
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            labels.push(`${dd}/${mm}`);
+        }
+    } else if (timeline === "custom" && window.customGraphStartTime && window.customGraphEndTime) {
+        const start = window.customGraphStartTime.getTime();
+        const end = window.customGraphEndTime.getTime();
+        const diffMs = end - start;
+        numPoints = 20;
+        
+        for (let i = 0; i < numPoints; i++) {
+            const currentMs = start + (diffMs * (i / (numPoints - 1)));
+            const d = new Date(currentMs);
+            const dd = String(d.getDate()).padStart(2, '0');
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const yyyy = d.getFullYear();
+            const hh = String(d.getHours()).padStart(2, '0');
+            const min = String(d.getMinutes()).padStart(2, '0');
+            
+            if (diffMs <= 6 * 3600 * 1000) {
+                labels.push(`${hh}:${min}:${String(d.getSeconds()).padStart(2, '0')}`);
+            } else if (diffMs <= 48 * 3600 * 1000) {
+                labels.push(`${dd}/${mm} ${hh}:${min}`);
+            } else {
+                labels.push(`${dd}/${mm}/${yyyy}`);
+            }
+        }
+    } else {
+        numPoints = 30;
+        for (let i = 29; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const dd = String(d.getDate()).padStart(2, '0');
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            labels.push(`${dd}/${mm}`);
+        }
     }
     
     // 1. CPU TMM vs Host CPU
     const tmmCpu = [];
     const hostCpu = [];
-    for (let i = 0; i < 24; i++) {
-        const hour = parseInt(labels[i].split(":")[0]);
+    for (let i = 0; i < numPoints; i++) {
+        let hour = 12;
+        if (labels[i] && labels[i].includes(":")) {
+            hour = parseInt(labels[i].split(":")[0]);
+        } else {
+            hour = (i % 24);
+        }
         const diurnalFactor = Math.sin(((hour - 6) / 24) * 2 * Math.PI) * 15 + 25; // oscila entre 10% y 40%
         const rand = rng() * 10 - 5;
         tmmCpu.push(Math.max(2, Math.round(diurnalFactor + rand)));
@@ -2095,7 +2285,7 @@ function loadDeviceGraphs() {
     const hostRam = [];
     const swapRam = [];
     const ramBase = 45 + (seed % 20); // base constante por hostname
-    for (let i = 0; i < 24; i++) {
+    for (let i = 0; i < numPoints; i++) {
         tmmRam.push(Math.round(ramBase + Math.sin(i / 10) * 1.2 + rng() * 0.4));
         hostRam.push(Math.round(15 + Math.cos(i / 8) * 0.8 + rng() * 0.3));
         swapRam.push(Math.round(rng() * 0.5));
@@ -2116,8 +2306,13 @@ function loadDeviceGraphs() {
     // 3. Active Connections
     const activeConns = [];
     const connBase = 1200 + (seed % 10) * 600;
-    for (let i = 0; i < 24; i++) {
-        const hour = parseInt(labels[i].split(":")[0]);
+    for (let i = 0; i < numPoints; i++) {
+        let hour = 12;
+        if (labels[i] && labels[i].includes(":")) {
+            hour = parseInt(labels[i].split(":")[0]);
+        } else {
+            hour = (i % 24);
+        }
         const timeFactor = Math.sin(((hour - 7) / 24) * 2 * Math.PI) * 0.35 + 0.65;
         activeConns.push(Math.round((timeFactor * connBase) + (rng() * 150)));
     }
@@ -2130,8 +2325,13 @@ function loadDeviceGraphs() {
     
     // 4. Connection Rate
     const connRate = [];
-    for (let i = 0; i < 24; i++) {
-        const hour = parseInt(labels[i].split(":")[0]);
+    for (let i = 0; i < numPoints; i++) {
+        let hour = 12;
+        if (labels[i] && labels[i].includes(":")) {
+            hour = parseInt(labels[i].split(":")[0]);
+        } else {
+            hour = (i % 24);
+        }
         const timeFactor = Math.sin(((hour - 7) / 24) * 2 * Math.PI) * 0.35 + 0.65;
         connRate.push(Math.round((timeFactor * (activeConns[i] / 18)) + (rng() * 10)));
     }
@@ -2146,8 +2346,13 @@ function loadDeviceGraphs() {
     const throughputIn = [];
     const throughputOut = [];
     const throughputBase = 0.4 + (seed % 6) * 0.35;
-    for (let i = 0; i < 24; i++) {
-        const hour = parseInt(labels[i].split(":")[0]);
+    for (let i = 0; i < numPoints; i++) {
+        let hour = 12;
+        if (labels[i] && labels[i].includes(":")) {
+            hour = parseInt(labels[i].split(":")[0]);
+        } else {
+            hour = (i % 24);
+        }
         const timeFactor = Math.sin(((hour - 7) / 24) * 2 * Math.PI) * 0.3 + 0.7;
         throughputIn.push(parseFloat((timeFactor * throughputBase + rng() * 0.05).toFixed(2)));
         throughputOut.push(parseFloat((timeFactor * throughputBase * 0.88 + rng() * 0.04).toFixed(2)));
@@ -2165,8 +2370,13 @@ function loadDeviceGraphs() {
     // 6. SSL TPS
     const sslTps = [];
     const tpsBase = 80 + (seed % 8) * 90;
-    for (let i = 0; i < 24; i++) {
-        const hour = parseInt(labels[i].split(":")[0]);
+    for (let i = 0; i < numPoints; i++) {
+        let hour = 12;
+        if (labels[i] && labels[i].includes(":")) {
+            hour = parseInt(labels[i].split(":")[0]);
+        } else {
+            hour = (i % 24);
+        }
         const timeFactor = Math.sin(((hour - 7) / 24) * 2 * Math.PI) * 0.28 + 0.72;
         sslTps.push(Math.round(timeFactor * tpsBase + rng() * 10));
     }
@@ -2179,7 +2389,7 @@ function loadDeviceGraphs() {
     
     // 7. HTTP Requests
     const httpReqs = [];
-    for (let i = 0; i < 24; i++) {
+    for (let i = 0; i < numPoints; i++) {
         httpReqs.push(Math.round(sslTps[i] * (2.8 + rng() * 0.5)));
     }
     drawGraph("chart-http-reqs", {
@@ -2208,7 +2418,7 @@ function loadDeviceGraphs() {
     // 9. Disk IOPS
     const diskReads = [];
     const diskWrites = [];
-    for (let i = 0; i < 24; i++) {
+    for (let i = 0; i < numPoints; i++) {
         diskReads.push(Math.round(40 + rng() * 35 + (i % 3 === 0 ? rng() * 70 : 0)));
         diskWrites.push(Math.round(20 + rng() * 20 + (i % 4 === 0 ? rng() * 50 : 0)));
     }

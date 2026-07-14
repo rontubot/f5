@@ -13,7 +13,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="styles.css?v=1.1.1">
+    <link rel="stylesheet" href="styles.css?v=1.1.2">
 </head>
 <body class="dark-mode">
     <div class="app-container">
@@ -163,6 +163,44 @@
                             <div id="upload-progress-bar" style="width: 0%;"></div>
                         </div>
                         <div class="progress-status" id="upload-status-text">Subiendo archivo al servidor...</div>
+                    </div>
+                </div>
+
+                <!-- iHealth QKView Metadata Card -->
+                <div class="glass-card margin-top-20" id="qkview-metadata-card" style="padding: 20px 24px;">
+                    <div class="panel-header" style="border-bottom: none; padding-bottom: 0; margin-bottom: 15px; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-circle-info icon-blue" style="color: var(--accent-primary);"></i>
+                        <h2 style="margin: 0; font-size: 15px; font-weight: 700;">Detalle de Registro en F5 iHealth</h2>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table class="premium-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 12.5px; min-width: 900px;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--border-color); color: var(--text-secondary); font-weight: 600;">
+                                    <th style="padding: 10px 12px;">Producto</th>
+                                    <th style="padding: 10px 12px;">Plataforma</th>
+                                    <th style="padding: 10px 12px;">Hostname</th>
+                                    <th style="padding: 10px 12px;">Versión</th>
+                                    <th style="padding: 10px 12px;">Nº de Serie</th>
+                                    <th style="padding: 10px 12px;">Fecha Generación</th>
+                                    <th style="padding: 10px 12px;">Caso F5 (SR)</th>
+                                    <th style="padding: 10px 12px;">Descripción</th>
+                                    <th style="padding: 10px 12px;">Fecha Subida</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr id="meta-row" style="color: #fff; border-bottom: 1px solid var(--border-color); background-color: rgba(255,255,255,0.01);">
+                                    <td id="meta-product" style="padding: 12px; font-weight: 500;">Cargando...</td>
+                                    <td id="meta-platform" style="padding: 12px; font-weight: 500;">Cargando...</td>
+                                    <td id="meta-hostname" style="padding: 12px; font-weight: 600; color: var(--accent-primary);">Cargando...</td>
+                                    <td id="meta-version" style="padding: 12px; font-family: monospace;">Cargando...</td>
+                                    <td id="meta-serial" style="padding: 12px; font-family: monospace;">Cargando...</td>
+                                    <td id="meta-gendate" style="padding: 12px; display: inline-flex; align-items: center; gap: 6px; margin-top: 10px;"><i class="fa-solid fa-calendar-day" style="color: var(--color-warning);"></i> <span id="meta-gendate-val">Cargando...</span></td>
+                                    <td id="meta-case" style="padding: 12px;">Cargando...</td>
+                                    <td id="meta-desc" style="padding: 12px; font-family: monospace; font-size: 11.5px;">Cargando...</td>
+                                    <td id="meta-uploaddate" style="padding: 12px;">Cargando...</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
@@ -439,7 +477,6 @@
                     </div>
                 </div>
             </div>
-
             <!-- Tab Page: Performance Graphs -->
             <div id="page-graphs" class="tab-page hidden">
                 <!-- Controls bar -->
@@ -449,7 +486,10 @@
                             <h2 style="margin: 0; font-size: 18px; font-weight: 700; color: #fff;"><i class="fa-solid fa-chart-line" style="color: var(--accent-primary); margin-right: 8px;"></i>Métricas de Rendimiento Histórico</h2>
                             <p style="margin: 4px 0 0 0; font-size: 12.5px; color: var(--text-muted);">Visualiza el historial completo del consumo de recursos, redes y subsistemas.</p>
                         </div>
-                        <div style="display: flex; gap: 12px; align-items: center;">
+                        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                            <!-- Choose graphs button -->
+                            <button class="pill-btn" id="btn-toggle-graphs-config" style="display: inline-flex; align-items: center; gap: 8px; border-color: var(--accent-primary);"><i class="fa-solid fa-list-check"></i> Escoger Gráficas</button>
+                            
                             <!-- View mode toggler -->
                             <div class="filter-pills" id="graph-view-selector" style="margin: 0;">
                                 <button class="pill-btn active" id="btn-graph-view-general">Vista General</button>
@@ -458,17 +498,87 @@
                         </div>
                     </div>
                     
-                    <!-- Category filter pills -->
-                    <div class="filter-pills margin-top-20" id="graph-category-selector" style="justify-content: flex-start; border-top: 1px solid var(--border-color); padding-top: 14px;">
-                        <button class="pill-btn active" data-category="all">Todas las Métricas</button>
-                        <button class="pill-btn" data-category="sistema">Sistema y Procesador</button>
-                        <button class="pill-btn" data-category="red">Tráfico y Conexiones</button>
-                        <button class="pill-btn" data-category="disco">Almacenamiento e I/O</button>
-                        <button class="pill-btn" data-category="ssl">Aceleración SSL/HTTP</button>
+                    <!-- Interval selectors bar (30d, 7d, 1d, 3h, Custom) -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); margin-top: 16px; padding-top: 14px; flex-wrap: wrap; gap: 14px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Rango de Tiempo:</span>
+                            <div class="filter-pills" id="graph-timeline-selector" style="margin: 0;">
+                                <button class="pill-btn active" data-timeline="30d">30 días</button>
+                                <button class="pill-btn" data-timeline="7d">7 días</button>
+                                <button class="pill-btn" data-timeline="1d">1 día</button>
+                                <button class="pill-btn" data-timeline="3h">3 horas</button>
+                                <button class="pill-btn" id="btn-timeline-custom">Personalizado</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Category filter pills -->
+                        <div class="filter-pills" id="graph-category-selector" style="margin: 0; justify-content: flex-start;">
+                            <button class="pill-btn active" data-category="all">Todas las Métricas</button>
+                            <button class="pill-btn" data-category="sistema">Sistema y Procesador</button>
+                            <button class="pill-btn" data-category="red">Tráfico y Conexiones</button>
+                            <button class="pill-btn" data-category="disco">Almacenamiento e I/O</button>
+                            <button class="pill-btn" data-category="ssl">Aceleración SSL/HTTP</button>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Graphs Rejilla Grid -->
+                <!-- Custom Timeline Picker Container (Collapsible) -->
+                <div id="graphs-custom-timeline-container" class="hidden" style="display: flex; align-items: center; gap: 15px; padding: 14px 24px; border-radius: 8px; border: 1px solid var(--border-color); background-color: hsla(220, 20%, 8%, 0.5); flex-wrap: wrap; margin-bottom: 20px;">
+                    <span style="font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;"><i class="fa-solid fa-calendar-days"></i> Rango Personalizado:</span>
+                    <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="font-size: 12px; color: var(--text-muted);">Desde:</span>
+                            <input type="datetime-local" id="graph-time-start" style="background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 4px; padding: 4px 8px; color: #fff; font-size: 12px; font-family: inherit; cursor: pointer;">
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="font-size: 12px; color: var(--text-muted);">Hasta:</span>
+                            <input type="datetime-local" id="graph-time-end" style="background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 4px; padding: 4px 8px; color: #fff; font-size: 12px; font-family: inherit; cursor: pointer;">
+                        </div>
+                        <button class="pill-btn" id="btn-apply-custom-timeline" style="padding: 4px 12px; font-size: 11px; border-radius: 4px; background-color: var(--accent-primary); color: var(--bg-main); font-weight: 700; border-color: var(--accent-primary);">Aplicar Filtro Temporal</button>
+                    </div>
+                </div>
+
+                <!-- Graph Chooser Drawer (Collapsible) -->
+                <div id="graphs-config-drawer" class="glass-card hidden" style="margin-bottom: 20px; padding: 20px 24px; border-color: var(--accent-primary);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                        <h3 style="margin: 0; font-size: 13px; font-weight: 700; color: #fff; text-transform: uppercase; letter-spacing: 0.5px;"><i class="fa-solid fa-gears" style="color: var(--color-warning); margin-right: 8px;"></i>Selección de Gráficas para Visualizar</h3>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--text-secondary); font-weight: 600; user-select: none;">
+                            <input type="checkbox" id="chk-graphs-all-toggle" checked style="accent-color: var(--accent-primary);"> Seleccionar/Deseccionar Todo
+                        </label>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 18px;" id="graphs-checkbox-container">
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #fff; cursor: pointer; user-select: none;">
+                            <input type="checkbox" class="chk-graph-item" data-graph-card-id="card-chart-cpu" checked style="accent-color: var(--accent-primary);"> Uso de CPU del Sistema
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #fff; cursor: pointer; user-select: none;">
+                            <input type="checkbox" class="chk-graph-item" data-graph-card-id="card-chart-ram" checked style="accent-color: var(--accent-primary);"> Distribución de Memoria RAM
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #fff; cursor: pointer; user-select: none;">
+                            <input type="checkbox" class="chk-graph-item" data-graph-card-id="card-chart-conns" checked style="accent-color: var(--accent-primary);"> Conexiones Concurrentes Activas
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #fff; cursor: pointer; user-select: none;">
+                            <input type="checkbox" class="chk-graph-item" data-graph-card-id="card-chart-conn-rate" checked style="accent-color: var(--accent-primary);"> Tasa de Nuevas Conexiones
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #fff; cursor: pointer; user-select: none;">
+                            <input type="checkbox" class="chk-graph-item" data-graph-card-id="card-chart-throughput" checked style="accent-color: var(--accent-primary);"> Rendimiento de Red (Throughput)
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #fff; cursor: pointer; user-select: none;">
+                            <input type="checkbox" class="chk-graph-item" data-graph-card-id="card-chart-ssl" checked style="accent-color: var(--accent-primary);"> Transacciones SSL por Segundo (TPS)
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #fff; cursor: pointer; user-select: none;">
+                            <input type="checkbox" class="chk-graph-item" data-graph-card-id="card-chart-http" checked style="accent-color: var(--accent-primary);"> Peticiones de Aplicación HTTP
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #fff; cursor: pointer; user-select: none;">
+                            <input type="checkbox" class="chk-graph-item" data-graph-card-id="card-chart-disk" checked style="accent-color: var(--accent-primary);"> Uso de Disco por Partición
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #fff; cursor: pointer; user-select: none;">
+                            <input type="checkbox" class="chk-graph-item" data-graph-card-id="card-chart-disk-io" checked style="accent-color: var(--accent-primary);"> Operaciones I/O de Disco
+                        </label>
+                    </div>
+                    <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                        <button class="pill-btn" id="btn-apply-graphs-filter" style="background-color: var(--accent-primary); color: var(--bg-main); font-weight: 700; border-color: var(--accent-primary); padding: 6px 16px;">Ver Seleccionadas</button>
+                    </div>
+                </div>                <!-- Graphs Rejilla Grid -->
                 <div class="graphs-grid general-layout" id="graphs-grid-container">
                     
                     <!-- Chart 1: CPU TMM vs Host -->
@@ -674,6 +784,6 @@
     </div>
     
     <!-- Custom JS -->
-    <script src="app.js?v=1.1.1"></script>
+    <script src="app.js?v=1.1.2"></script>
 </body>
 </html>
