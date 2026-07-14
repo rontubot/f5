@@ -292,27 +292,7 @@ async def get_device_metadata(hostname: str):
     }
     
     if not qkview_id:
-        if "cuy06" in hostname.lower() or "tenant" in hostname.lower():
-            metadata.update({
-                "product": "BIG-IP VCMP Guest",
-                "platform": "BIG-IP Tenant (Z101)",
-                "version": "17.5.1.3 Point Release 3 (0.0.19)",
-                "serial_number": "Z101-TENANT-SRV",
-                "generation_date": "11 Mar 2026 06:50 -0700",
-                "description": "F5CUY06.qkview",
-                "upload_date": "14 Jul 2026 15:04 +0000"
-            })
-        elif "bigip.example.com" in hostname.lower() or "example" in hostname.lower():
-            metadata.update({
-                "product": "BIG-IP 1600",
-                "platform": "BIG-IP 1600 (C102)",
-                "version": "10.1.0 Final (3341.0)",
-                "serial_number": "C102-SYS-SERIAL",
-                "generation_date": "14 Jul 2026 08:04 -0700",
-                "description": "bigip_backup.qkview",
-                "upload_date": "14 Jul 2026 08:04 -0700"
-            })
-        return metadata
+        raise HTTPException(status_code=404, detail="No se pudo resolver el QKView ID para obtener metadatos reales de iHealth.")
 
     try:
         qkviews_data = ihealth_client.get_qkviews_list()
@@ -732,15 +712,15 @@ async def get_device_command_content(hostname: str, command_id: str, limit_lines
 async def get_device_graphs_list(hostname: str):
     qkview_id = resolve_qkview_id(hostname)
     if not qkview_id:
-        return {"available": False, "source": "simulated", "reason": "No qkview_id resolved"}
+        return {"available": False, "source": "none", "reason": "No se pudo resolver el QKView ID para obtener gráficas reales."}
     try:
         graphs_data = ihealth_client.get_qkview_graphs(qkview_id)
         if not graphs_data:
-            return {"available": False, "source": "simulated", "reason": "Graphs not available in iHealth API"}
+            return {"available": False, "source": "none", "reason": "No hay gráficas de rendimiento reales disponibles en la API de iHealth."}
         return {"available": True, "source": "ihealth", "data": graphs_data}
     except Exception as e:
         print(f"[main] Error fetching graphs for {hostname}: {e}")
-        return {"available": False, "source": "simulated", "reason": str(e)}
+        return {"available": False, "source": "none", "reason": f"Error descargando gráficas: {str(e)}"}
 
 @app.get("/api/devices/{hostname}/graphs/{graph_id}", summary="Get data for a specific iHealth graph")
 async def get_device_graph_data(hostname: str, graph_id: str):

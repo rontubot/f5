@@ -328,33 +328,8 @@ async function loadRealDeviceData(hostname) {
         if (curlPre) {
             curlPre.innerText = `curl -X POST -H "Authorization: Bearer BirraverdePCtoken" -F "qkview=@/ruta/al/archivo.qkview" ${BACKEND_API_URL}/api/upload`;
         }
-        // Generar historial de recursos simulados basados en el nombre del host (con variación estable)
-        const overviewSeed = getSeedFromString(hostname);
-        const overviewRng = createSeededRandom(overviewSeed);
-        const cpuHistory = [];
-        const ramHistory = [];
-        const connHistory = [];
-        const baseCpu = 20 + (overviewSeed % 15);
-        const baseRam = 50 + (overviewSeed % 12);
-        
-        for (let i = 0; i < 7; i++) {
-            cpuHistory.push(Math.round(baseCpu + overviewRng() * 12 - 6));
-            ramHistory.push(Math.round(baseRam + overviewRng() * 4 - 2));
-            connHistory.push(Math.round((500 + (overviewSeed % 6) * 200) * (0.85 + overviewRng() * 0.3)));
-        }
-
-        const simulatedHistory = {
-            labels: ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"],
-            cpu: cpuHistory,
-            ram: ramHistory
-        };
-        initResourceChart(simulatedHistory);
-
-        const simulatedConnections = {
-            labels: ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"],
-            active: connHistory
-        };
-        initConnectionsChart(simulatedConnections);
+        // Cargar métricas reales en el Overview (Vista General) desde iHealth
+        await loadRealOverviewGraphs(hostname);
     } catch (err) {
         console.error("Error al cargar diagnósticos del dispositivo:", err);
     }
@@ -2168,282 +2143,161 @@ async function loadDeviceMetadata(hostname) {
     }
 }
 
-function loadDeviceGraphs() {
+async function loadDeviceGraphs() {
     const hostname = document.getElementById("lbl-hostname").innerText;
+    const container = document.getElementById("graphs-grid-container");
+    if (!container) return;
     
-    // Si no hay dispositivos cargados o está cargando, mostrar placeholder y no renderizar gráficas
     if (!hasDevices || !hostname || hostname === "Cargando..." || hostname === "Ninguno") {
-        const container = document.getElementById("graphs-grid-container");
-        if (container) {
-            container.innerHTML = `
-                <div class="glass-card" style="grid-column: 1 / -1; min-height: 380px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 40px; color: var(--text-muted);">
-                    <i class="fa-solid fa-chart-line fa-4x" style="margin-bottom: 20px; color: var(--border-color); opacity: 0.5;"></i>
-                    <h3 style="color: #fff; margin-bottom: 8px; font-weight: 700;">No hay gráficas disponibles</h3>
-                    <p style="max-width: 450px; font-size: 13.5px; line-height: 1.6; margin: 0 auto;">Carga y analiza un archivo de diagnóstico QKView en la pestaña "Vista General" para poblar los gráficos de rendimiento y red.</p>
-                </div>
-            `;
-        }
+        container.innerHTML = `
+            <div class="glass-card" style="grid-column: 1 / -1; min-height: 380px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 40px; color: var(--text-muted);">
+                <i class="fa-solid fa-chart-line fa-4x" style="margin-bottom: 20px; color: var(--border-color); opacity: 0.5;"></i>
+                <h3 style="color: #fff; margin-bottom: 8px; font-weight: 700;">No hay gráficas disponibles</h3>
+                <p style="max-width: 450px; font-size: 13.5px; line-height: 1.6; margin: 0 auto;">Carga y analiza un archivo de diagnóstico QKView en la pestaña "Vista General" para poblar los gráficos de rendimiento y red.</p>
+            </div>
+        `;
         return;
     }
     
     setupGraphsTabControls();
     
-    const seed = getSeedFromString(hostname);
-    const rng = createSeededRandom(seed);
+    // Mostrar spinner de carga
+    container.innerHTML = `
+        <div class="glass-card" style="grid-column: 1 / -1; min-height: 380px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 40px; color: var(--text-muted);">
+            <i class="fa-solid fa-spinner fa-spin fa-4x" style="margin-bottom: 20px; color: var(--accent-primary);"></i>
+            <h3 style="color: #fff; margin-bottom: 8px; font-weight: 700;">Descargando Métricas Reales desde iHealth...</h3>
+            <p style="max-width: 450px; font-size: 13.5px;">Esto puede tardar unos segundos mientras se extraen los datos del RRD del QKView.</p>
+        </div>
+    `;
     
-    // Configuración del eje X basado en el intervalo de tiempo seleccionado
-    let numPoints = 24;
-    const labels = [];
-    const timeline = window.currentGraphTimeline || "30d";
-    
-    if (timeline === "3h") {
-        numPoints = 12; // 12 puntos cada 15 min
-        for (let i = 11; i >= 0; i--) {
-            const d = new Date();
-            d.setMinutes(d.getMinutes() - (i * 15));
-            const hh = String(d.getHours()).padStart(2, '0');
-            const mm = String(d.getMinutes()).padStart(2, '0');
-            const ss = String(d.getSeconds()).padStart(2, '0');
-            labels.push(`${hh}:${mm}:${ss}`);
+    try {
+        const response = await fetch(`${BACKEND_API_URL}/api/devices/${hostname}/graphs`);
+        if (!response.ok) {
+            throw new Error(`Error en API de gráficas: Código ${response.status}`);
         }
-    } else if (timeline === "1d") {
-        numPoints = 24;
-        for (let i = 23; i >= 0; i--) {
-            const d = new Date();
-            d.setHours(d.getHours() - i);
-            labels.push(`${d.getHours().toString().padStart(2, '0')}:00`);
-        }
-    } else if (timeline === "7d") {
-        numPoints = 7;
-        for (let i = 6; i >= 0; i--) {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            const dd = String(d.getDate()).padStart(2, '0');
-            const mm = String(d.getMonth() + 1).padStart(2, '0');
-            labels.push(`${dd}/${mm}`);
-        }
-    } else if (timeline === "30d") {
-        numPoints = 30;
-        for (let i = 29; i >= 0; i--) {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            const dd = String(d.getDate()).padStart(2, '0');
-            const mm = String(d.getMonth() + 1).padStart(2, '0');
-            labels.push(`${dd}/${mm}`);
-        }
-    } else if (timeline === "custom" && window.customGraphStartTime && window.customGraphEndTime) {
-        const start = window.customGraphStartTime.getTime();
-        const end = window.customGraphEndTime.getTime();
-        const diffMs = end - start;
-        numPoints = 20;
         
-        for (let i = 0; i < numPoints; i++) {
-            const currentMs = start + (diffMs * (i / (numPoints - 1)));
-            const d = new Date(currentMs);
-            const dd = String(d.getDate()).padStart(2, '0');
-            const mm = String(d.getMonth() + 1).padStart(2, '0');
-            const yyyy = d.getFullYear();
-            const hh = String(d.getHours()).padStart(2, '0');
-            const min = String(d.getMinutes()).padStart(2, '0');
+        const resData = await response.json();
+        if (!resData.available || !resData.data || resData.data.length === 0) {
+            throw new Error(resData.reason || "La API de iHealth no reportó gráficas de rendimiento disponibles para este QKView.");
+        }
+        
+        container.innerHTML = "";
+        
+        const graphsList = resData.data;
+        for (const graph of graphsList) {
+            const card = document.createElement("div");
+            card.className = "glass-card graph-card";
+            card.style.minHeight = "340px";
+            card.setAttribute("data-cat", "sistema"); // Categoría base
+            card.innerHTML = `
+                <div class="graph-card-header">
+                    <span class="graph-card-title">${graph.name || graph.id}</span>
+                    <span class="graph-card-subtitle">${graph.description || ""}</span>
+                </div>
+                <div class="graph-canvas-wrapper" style="position: relative; height: 220px; width: 100%;">
+                    <canvas id="chart-real-${graph.id}"></canvas>
+                </div>
+            `;
+            container.appendChild(card);
             
-            if (diffMs <= 6 * 3600 * 1000) {
-                labels.push(`${hh}:${min}:${String(d.getSeconds()).padStart(2, '0')}`);
-            } else if (diffMs <= 48 * 3600 * 1000) {
-                labels.push(`${dd}/${mm} ${hh}:${min}`);
-            } else {
-                labels.push(`${dd}/${mm}/${yyyy}`);
+            // Cargar y renderizar cada gráfica individualmente
+            loadAndRenderSingleRealGraph(hostname, graph.id);
+        }
+        
+        applyGraphFiltersAndLayout();
+        
+    } catch (err) {
+        console.error("Error al cargar gráficas reales:", err);
+        container.innerHTML = `
+            <div class="glass-card" style="grid-column: 1 / -1; min-height: 380px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 40px; color: var(--color-critical);">
+                <i class="fa-solid fa-triangle-exclamation fa-4x" style="margin-bottom: 20px;"></i>
+                <h3 style="color: #fff; margin-bottom: 8px; font-weight: 700;">Error al Obtener Métricas Reales</h3>
+                <p style="max-width: 500px; font-size: 13.5px; line-height: 1.6; margin: 0 auto; color: var(--text-muted);">${err.message}</p>
+            </div>
+        `;
+    }
+}
+
+async function loadAndRenderSingleRealGraph(hostname, graphId) {
+    const canvasId = `chart-real-${graphId}`;
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    
+    try {
+        const response = await fetch(`${BACKEND_API_URL}/api/devices/${hostname}/graphs/${graphId}`);
+        if (!response.ok) throw new Error("Error obteniendo datos de esta métrica");
+        
+        const graphData = await response.json();
+        
+        const labels = graphData.labels || [];
+        const datasets = (graphData.datasets || []).map(ds => ({
+            label: ds.label || graphId,
+            data: ds.data || [],
+            borderColor: getRandomColorForDataset(ds.label || graphId),
+            backgroundColor: 'transparent',
+            tension: 0.3,
+            fill: false
+        }));
+        
+        const ctx = canvas.getContext('2d');
+        if (window.activeCharts[canvasId]) {
+            window.activeCharts[canvasId].destroy();
+        }
+        
+        window.activeCharts[canvasId] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: { color: '#e5e7eb', font: { size: 11, family: 'Outfit' } }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: { color: '#9ca3af', font: { size: 10 } }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: { color: '#9ca3af', font: { size: 10 } }
+                    }
+                }
             }
+        });
+    } catch (err) {
+        console.error(`Error renderizando gráfica ${graphId}:`, err);
+        const parent = canvas.parentElement;
+        if (parent) {
+            parent.innerHTML = `
+                <div style="display:flex; align-items:center; justify-content:center; height:100%; color:var(--text-muted); font-size:12px; flex-direction:column; gap:8px;">
+                    <i class="fa-solid fa-triangle-exclamation" style="color:var(--color-warning);"></i>
+                    <span>Métrica no disponible</span>
+                </div>
+            `;
         }
-    } else {
-        numPoints = 30;
-        for (let i = 29; i >= 0; i--) {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            const dd = String(d.getDate()).padStart(2, '0');
-            const mm = String(d.getMonth() + 1).padStart(2, '0');
-            labels.push(`${dd}/${mm}`);
-        }
     }
-    
-    // 1. CPU TMM vs Host CPU
-    const tmmCpu = [];
-    const hostCpu = [];
-    for (let i = 0; i < numPoints; i++) {
-        let hour = 12;
-        if (labels[i] && labels[i].includes(":")) {
-            hour = parseInt(labels[i].split(":")[0]);
-        } else {
-            hour = (i % 24);
-        }
-        const diurnalFactor = Math.sin(((hour - 6) / 24) * 2 * Math.PI) * 15 + 25; // oscila entre 10% y 40%
-        const rand = rng() * 10 - 5;
-        tmmCpu.push(Math.max(2, Math.round(diurnalFactor + rand)));
-        hostCpu.push(Math.max(4, Math.round(12 + rng() * 8 + Math.sin(hour / 3) * 3)));
+}
+
+function getRandomColorForDataset(label) {
+    let hash = 0;
+    for (let i = 0; i < label.length; i++) {
+        hash = label.charCodeAt(i) + ((hash << 5) - hash);
     }
-    drawGraph("chart-cpu-tmm-host", {
-        type: 'line',
-        labels: labels,
-        datasets: [
-            { label: 'TMM CPU', data: tmmCpu, borderColor: 'hsl(217, 91%, 60%)', backgroundColor: 'hsla(217, 91%, 60%, 0.08)', fill: true, tension: 0.4 },
-            { label: 'Host CPU', data: hostCpu, borderColor: 'hsl(145, 80%, 50%)', backgroundColor: 'transparent', fill: false, tension: 0.4 }
-        ],
-        yMax: 100,
-        ySuffix: '%'
-    });
-    
-    // 2. RAM Allocation
-    const tmmRam = [];
-    const hostRam = [];
-    const swapRam = [];
-    const ramBase = 45 + (seed % 20); // base constante por hostname
-    for (let i = 0; i < numPoints; i++) {
-        tmmRam.push(Math.round(ramBase + Math.sin(i / 10) * 1.2 + rng() * 0.4));
-        hostRam.push(Math.round(15 + Math.cos(i / 8) * 0.8 + rng() * 0.3));
-        swapRam.push(Math.round(rng() * 0.5));
-    }
-    drawGraph("chart-ram-dist", {
-        type: 'line',
-        labels: labels,
-        datasets: [
-            { label: 'TMM RAM', data: tmmRam, borderColor: 'hsl(217, 91%, 60%)', backgroundColor: 'hsla(217, 91%, 60%, 0.08)', fill: true, tension: 0.3 },
-            { label: 'Host RAM', data: hostRam, borderColor: 'hsl(270, 85%, 65%)', backgroundColor: 'hsla(270, 85%, 65%, 0.08)', fill: true, tension: 0.3 },
-            { label: 'Swap', data: swapRam, borderColor: 'hsl(0, 80%, 60%)', backgroundColor: 'transparent', fill: false, tension: 0.1 }
-        ],
-        stacked: true,
-        yMax: 100,
-        ySuffix: '%'
-    });
-    
-    // 3. Active Connections
-    const activeConns = [];
-    const connBase = 1200 + (seed % 10) * 600;
-    for (let i = 0; i < numPoints; i++) {
-        let hour = 12;
-        if (labels[i] && labels[i].includes(":")) {
-            hour = parseInt(labels[i].split(":")[0]);
-        } else {
-            hour = (i % 24);
-        }
-        const timeFactor = Math.sin(((hour - 7) / 24) * 2 * Math.PI) * 0.35 + 0.65;
-        activeConns.push(Math.round((timeFactor * connBase) + (rng() * 150)));
-    }
-    drawGraph("chart-active-connections", {
-        type: 'line',
-        labels: labels,
-        datasets: [{ label: 'Conexiones Activas', data: activeConns, borderColor: 'hsl(145, 80%, 50%)', backgroundColor: 'hsla(145, 80%, 50%, 0.08)', fill: true, tension: 0.4 }],
-        ySuffix: ''
-    });
-    
-    // 4. Connection Rate
-    const connRate = [];
-    for (let i = 0; i < numPoints; i++) {
-        let hour = 12;
-        if (labels[i] && labels[i].includes(":")) {
-            hour = parseInt(labels[i].split(":")[0]);
-        } else {
-            hour = (i % 24);
-        }
-        const timeFactor = Math.sin(((hour - 7) / 24) * 2 * Math.PI) * 0.35 + 0.65;
-        connRate.push(Math.round((timeFactor * (activeConns[i] / 18)) + (rng() * 10)));
-    }
-    drawGraph("chart-new-connection-rate", {
-        type: 'line',
-        labels: labels,
-        datasets: [{ label: 'Nuevas Conexiones/seg', data: connRate, borderColor: 'hsl(200, 95%, 55%)', backgroundColor: 'transparent', fill: false, tension: 0.4 }],
-        ySuffix: ' con/s'
-    });
-    
-    // 5. Throughput
-    const throughputIn = [];
-    const throughputOut = [];
-    const throughputBase = 0.4 + (seed % 6) * 0.35;
-    for (let i = 0; i < numPoints; i++) {
-        let hour = 12;
-        if (labels[i] && labels[i].includes(":")) {
-            hour = parseInt(labels[i].split(":")[0]);
-        } else {
-            hour = (i % 24);
-        }
-        const timeFactor = Math.sin(((hour - 7) / 24) * 2 * Math.PI) * 0.3 + 0.7;
-        throughputIn.push(parseFloat((timeFactor * throughputBase + rng() * 0.05).toFixed(2)));
-        throughputOut.push(parseFloat((timeFactor * throughputBase * 0.88 + rng() * 0.04).toFixed(2)));
-    }
-    drawGraph("chart-throughput", {
-        type: 'line',
-        labels: labels,
-        datasets: [
-            { label: 'Ingreso (Interfaces IN)', data: throughputIn, borderColor: 'hsl(217, 91%, 60%)', backgroundColor: 'hsla(217, 91%, 60%, 0.08)', fill: true, tension: 0.4 },
-            { label: 'Egreso (Interfaces OUT)', data: throughputOut, borderColor: 'hsl(270, 85%, 65%)', backgroundColor: 'hsla(270, 85%, 65%, 0.04)', fill: true, tension: 0.4 }
-        ],
-        ySuffix: ' Gbps'
-    });
-    
-    // 6. SSL TPS
-    const sslTps = [];
-    const tpsBase = 80 + (seed % 8) * 90;
-    for (let i = 0; i < numPoints; i++) {
-        let hour = 12;
-        if (labels[i] && labels[i].includes(":")) {
-            hour = parseInt(labels[i].split(":")[0]);
-        } else {
-            hour = (i % 24);
-        }
-        const timeFactor = Math.sin(((hour - 7) / 24) * 2 * Math.PI) * 0.28 + 0.72;
-        sslTps.push(Math.round(timeFactor * tpsBase + rng() * 10));
-    }
-    drawGraph("chart-ssl-tps", {
-        type: 'line',
-        labels: labels,
-        datasets: [{ label: 'SSL TPS', data: sslTps, borderColor: 'hsl(40, 90%, 55%)', backgroundColor: 'transparent', fill: false, tension: 0.4 }],
-        ySuffix: ' tps'
-    });
-    
-    // 7. HTTP Requests
-    const httpReqs = [];
-    for (let i = 0; i < numPoints; i++) {
-        httpReqs.push(Math.round(sslTps[i] * (2.8 + rng() * 0.5)));
-    }
-    drawGraph("chart-http-reqs", {
-        type: 'line',
-        labels: labels,
-        datasets: [{ label: 'HTTP Requests/seg', data: httpReqs, borderColor: 'hsl(340, 85%, 60%)', backgroundColor: 'transparent', fill: false, tension: 0.4 }],
-        ySuffix: ' req/s'
-    });
-    
-    // 8. Disk Partitions
-    const partitions = ['/', '/var', '/var/log', '/config', '/usr'];
-    const diskUsage = [];
-    diskUsage.push(Math.round(20 + (seed % 8)));
-    diskUsage.push(Math.round(35 + (seed % 15)));
-    diskUsage.push(Math.round(50 + (seed % 30)));
-    diskUsage.push(Math.round(12 + (seed % 6)));
-    diskUsage.push(Math.round(58));
-    drawGraph("chart-disk-partitions", {
-        type: 'bar',
-        labels: partitions,
-        datasets: [{ label: 'Uso de Partición %', data: diskUsage, backgroundColor: 'hsla(217, 91%, 60%, 0.4)', borderColor: 'hsl(217, 91%, 60%)', borderWidth: 1 }],
-        yMax: 100,
-        ySuffix: '%'
-    });
-    
-    // 9. Disk IOPS
-    const diskReads = [];
-    const diskWrites = [];
-    for (let i = 0; i < numPoints; i++) {
-        diskReads.push(Math.round(40 + rng() * 35 + (i % 3 === 0 ? rng() * 70 : 0)));
-        diskWrites.push(Math.round(20 + rng() * 20 + (i % 4 === 0 ? rng() * 50 : 0)));
-    }
-    drawGraph("chart-disk-iops", {
-        type: 'line',
-        labels: labels,
-        datasets: [
-            { label: 'Lectura (IOPS)', data: diskReads, borderColor: 'hsl(145, 80%, 50%)', backgroundColor: 'transparent', fill: false, tension: 0.3 },
-            { label: 'Escritura (IOPS)', data: diskWrites, borderColor: 'hsl(0, 80%, 60%)', backgroundColor: 'transparent', fill: false, tension: 0.3 }
-        ],
-        ySuffix: ' iops'
-    });
-    
-    applyGraphFiltersAndLayout();
+    const h = Math.abs(hash % 360);
+    return `hsl(${h}, 85%, 60%)`;
+}
 }
 
 // --- 11. Buscador de Logs Unificado (iHealth Log Search Console) ---
@@ -2920,6 +2774,108 @@ function setupDateTimePickers() {
             }
         }
     });
+}
+
+async function loadRealOverviewGraphs(hostname) {
+    // Mostrar estado de carga en los gráficos de la Vista General
+    initResourceChart({ labels: ["Cargando..."], cpu: [], ram: [] });
+    initConnectionsChart({ labels: ["Cargando..."], active: [] });
+    
+    try {
+        const response = await fetch(`${BACKEND_API_URL}/api/devices/${hostname}/graphs`);
+        if (!response.ok) throw new Error("No se pudieron obtener métricas reales");
+        
+        const resData = await response.json();
+        if (!resData.available || !resData.data || resData.data.length === 0) {
+            throw new Error("Métricas de rendimiento no disponibles");
+        }
+        
+        const graphs = resData.data;
+        let cpuGraphId = null;
+        let connGraphId = null;
+        let ramGraphId = null;
+        
+        for (const g of graphs) {
+            const gId = g.id.toLowerCase();
+            const gName = (g.name || "").toLowerCase();
+            if (gId.includes("cpu") || gName.includes("cpu")) {
+                cpuGraphId = g.id;
+            } else if (gId.includes("conn") || gName.includes("conn") || gName.includes("sesiones")) {
+                connGraphId = g.id;
+            } else if (gId.includes("mem") || gName.includes("mem") || gId.includes("ram")) {
+                ramGraphId = g.id;
+            }
+        }
+        
+        let labels = [];
+        let cpuData = [];
+        let ramData = [];
+        
+        if (cpuGraphId) {
+            try {
+                const res = await fetch(`${BACKEND_API_URL}/api/devices/${hostname}/graphs/${cpuGraphId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    labels = data.labels || [];
+                    if (data.datasets && data.datasets.length > 0) {
+                        cpuData = data.datasets[0].data || [];
+                    }
+                }
+            } catch (e) { console.error("Error al obtener CPU RRD real:", e); }
+        }
+        
+        if (ramGraphId) {
+            try {
+                const res = await fetch(`${BACKEND_API_URL}/api/devices/${hostname}/graphs/${ramGraphId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (!labels.length) labels = data.labels || [];
+                    if (data.datasets && data.datasets.length > 0) {
+                        ramData = data.datasets[0].data || [];
+                    }
+                }
+            } catch (e) { console.error("Error al obtener RAM RRD real:", e); }
+        }
+        
+        if (connGraphId) {
+            try {
+                const res = await fetch(`${BACKEND_API_URL}/api/devices/${hostname}/graphs/${connGraphId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const connLabels = data.labels || [];
+                    let activeConns = [];
+                    if (data.datasets && data.datasets.length > 0) {
+                        activeConns = data.datasets[0].data || [];
+                    }
+                    if (activeConns.length > 0) {
+                        initConnectionsChart({
+                            labels: connLabels.slice(-7), // Ultimos 7 puntos para mantenerlo compacto
+                            active: activeConns.slice(-7)
+                        });
+                    }
+                }
+            } catch (e) { console.error("Error al obtener Conexiones RRD real:", e); }
+        }
+        
+        if (cpuData.length > 0 || ramData.length > 0) {
+            const maxLen = Math.max(cpuData.length, ramData.length);
+            if (labels.length < maxLen) {
+                labels = Array.from({length: maxLen}, (_, i) => `${i+1}`);
+            }
+            initResourceChart({
+                labels: labels.slice(-7),
+                cpu: cpuData.slice(-7),
+                ram: ramData.slice(-7)
+            });
+        } else {
+            initResourceChart({ labels: ["Sin datos reales"], cpu: [], ram: [] });
+        }
+        
+    } catch (err) {
+        console.warn("No se pudieron cargar gráficas de overview reales:", err);
+        initResourceChart({ labels: ["Métricas reales no disponibles"], cpu: [], ram: [] });
+        initConnectionsChart({ labels: ["Métricas reales no disponibles"], active: [] });
+    }
 }
 
 
