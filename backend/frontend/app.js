@@ -2452,13 +2452,21 @@ function loadDeviceLogsPage() {
     const hostname = document.getElementById("lbl-hostname").innerText;
     if (!hasDevices || !hostname || hostname === "Cargando..." || hostname === "Ninguno") return;
     
-    if (logSearchCurrentView === "logsearch") {
-        document.getElementById("subpage-logsearch").classList.remove("hidden");
-        document.getElementById("subpage-fileexplorer").classList.add("hidden");
-        loadLogSearchData(hostname);
+    const subpageSearch = document.getElementById("subpage-logsearch");
+    const subpageExplore = document.getElementById("subpage-fileexplorer");
+    
+    if (subpageSearch && subpageExplore) {
+        if (logSearchCurrentView === "logsearch") {
+            subpageSearch.classList.remove("hidden");
+            subpageExplore.classList.add("hidden");
+            loadLogSearchData(hostname);
+        } else {
+            subpageSearch.classList.add("hidden");
+            subpageExplore.classList.remove("hidden");
+            loadDeviceLogItems();
+        }
     } else {
-        document.getElementById("subpage-logsearch").classList.add("hidden");
-        document.getElementById("subpage-fileexplorer").classList.remove("hidden");
+        // Fallback para el layout viejo si no se ha refrescado o cargado el nuevo HTML
         loadDeviceLogItems();
     }
 }
