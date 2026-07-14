@@ -1022,6 +1022,10 @@ function renderLogItems() {
 }
 
 async function loadLogItemContent(item) {
+    await loadLogItemContentWithLimit(item, 15000);
+}
+
+async function loadLogItemContentWithLimit(item, limit) {
     const hostname = document.getElementById("lbl-hostname").innerText;
     const viewerContainer = document.getElementById("log-viewer-container");
     if (!viewerContainer) return;
@@ -1031,20 +1035,30 @@ async function loadLogItemContent(item) {
     
     const metadataContainer = document.getElementById("log-viewer-metadata");
     const filtersContainer = document.getElementById("log-level-filters-container");
-    if (filtersContainer) filtersContainer.classList.add("hidden"); // Ocultar filtros mientras carga
+    const timeFiltersContainer = document.getElementById("log-time-filter-container");
+    const eduPanel = document.getElementById("log-education-panel");
+    if (filtersContainer) filtersContainer.classList.add("hidden");
+    if (timeFiltersContainer) timeFiltersContainer.classList.add("hidden");
+    if (eduPanel) eduPanel.classList.add("hidden");
     
     const btnDownload = document.getElementById("btn-download-log");
     if (btnDownload) btnDownload.disabled = true;
     
     try {
         const endpoint = currentLogType === "files" ? "files" : "commands";
-        const response = await fetch(`${BACKEND_API_URL}/api/devices/${hostname}/${endpoint}/${item.id}`);
+        const response = await fetch(`${BACKEND_API_URL}/api/devices/${hostname}/${endpoint}/${item.id}?limit_lines=${limit}`);
         if (!response.ok) throw new Error("Error en respuesta de API");
         
         const data = await response.json();
         rawLogContent = data.content || "";
         
-        if (filtersContainer) filtersContainer.classList.remove("hidden"); // Mostrar filtros tras carga exitosa
+        if (filtersContainer) filtersContainer.classList.remove("hidden");
+        // Solo mostrar filtros de tiempo para archivos de logs y si tienen contenido
+        if (timeFiltersContainer && currentLogType === "files" && rawLogContent) {
+            timeFiltersContainer.classList.remove("hidden");
+        } else if (timeFiltersContainer) {
+            timeFiltersContainer.classList.add("hidden");
+        }
         
         if (metadataContainer) {
             if (currentLogType === "files") {
@@ -1053,7 +1067,7 @@ async function loadLogItemContent(item) {
                 const modified = item.lastModified || "Desconocido";
                 let truncateAlert = "";
                 if (data.truncated) {
-                    truncateAlert = `<span class="badge badge-warning" style="text-transform: none; font-size: 11px; background-color: var(--color-warning); color: #000; border-color: var(--color-warning);"><i class="fa-solid fa-triangle-exclamation"></i> Mostrando primeras ${data.limit.toLocaleString()} líneas de ${data.total_lines.toLocaleString()}</span>`;
+                    truncateAlert = `<span class="badge badge-warning" style="text-transform: none; font-size: 11px; background-color: var(--color-warning); color: #000; border-color: var(--color-warning); display: inline-flex; align-items: center; gap: 8px;"><i class="fa-solid fa-triangle-exclamation"></i> Mostrando primeras ${data.limit.toLocaleString()} líneas de ${data.total_lines.toLocaleString()} <button id="btn-load-all-lines" style="background: rgba(0,0,0,0.2); border: 1px solid rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 6px; color: #000; cursor: pointer; font-size: 10px; font-weight: 700;">Cargar Todo</button></span>`;
                 }
                 metadataContainer.innerHTML = `
                     <span class="badge badge-info" style="text-transform: none; font-size: 11px;">Tamaño: ${sizeFormatted}</span>
@@ -1064,7 +1078,7 @@ async function loadLogItemContent(item) {
                 metadataContainer.classList.remove("hidden");
             } else {
                 if (data.truncated) {
-                    metadataContainer.innerHTML = `<span class="badge badge-warning" style="text-transform: none; font-size: 11px; background-color: var(--color-warning); color: #000; border-color: var(--color-warning);"><i class="fa-solid fa-triangle-exclamation"></i> Mostrando primeras ${data.limit.toLocaleString()} líneas de ${data.total_lines.toLocaleString()}</span>`;
+                    metadataContainer.innerHTML = `<span class="badge badge-warning" style="text-transform: none; font-size: 11px; background-color: var(--color-warning); color: #000; border-color: var(--color-warning); display: inline-flex; align-items: center; gap: 8px;"><i class="fa-solid fa-triangle-exclamation"></i> Mostrando primeras ${data.limit.toLocaleString()} líneas de ${data.total_lines.toLocaleString()} <button id="btn-load-all-lines" style="background: rgba(0,0,0,0.2); border: 1px solid rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 6px; color: #000; cursor: pointer; font-size: 10px; font-weight: 700;">Cargar Todo</button></span>`;
                     metadataContainer.classList.remove("hidden");
                 } else {
                     metadataContainer.innerHTML = "";
@@ -1073,11 +1087,26 @@ async function loadLogItemContent(item) {
             }
         }
         
+        if (data.truncated) {
+            setTimeout(() => {
+                const btnLoadAll = document.getElementById("btn-load-all-lines");
+                if (btnLoadAll) {
+                    btnLoadAll.onclick = (e) => {
+                        e.stopPropagation();
+                        loadLogItemContentWithLimit(item, 0);
+                    };
+                }
+            }, 80);
+        }
+        
+        initializeTimeFilters();
+        
         if (btnDownload) btnDownload.disabled = false;
         renderLogContent();
     } catch (err) {
         console.error("Error al descargar contenido del log:", err);
         if (filtersContainer) filtersContainer.classList.add("hidden");
+        if (timeFiltersContainer) timeFiltersContainer.classList.add("hidden");
         viewerContainer.innerHTML = `
             <div style="color: var(--color-critical); text-align: center; padding: 40px 20px;">
                 <i class="fa-solid fa-circle-xmark fa-3x" style="margin-bottom: 10px;"></i>
@@ -1086,6 +1115,228 @@ async function loadLogItemContent(item) {
             </div>
         `;
     }
+}
+
+// Auxiliar para parsear marcas de tiempo syslog o ISO de F5
+function parseLogLineTimestamp(line) {
+    const cleanLine = line.replace(/<[^>]*>/g, "").trim();
+    
+    // 1. Formato Syslog estándar: Jul 14 11:42:05
+    const syslogRegex = /^([A-Z][a-z]{2})\s+(\d+)\s+(\d{2}):(\d{2}):(\d{2})/;
+    let match = cleanLine.match(syslogRegex);
+    if (match) {
+        const months = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
+        const m = months[match[1]];
+        const d = parseInt(match[2], 10);
+        const hh = parseInt(match[3], 10);
+        const mm = parseInt(match[4], 10);
+        const ss = parseInt(match[5], 10);
+        return new Date(2026, m, d, hh, mm, ss); // Asumimos año del análisis (2026)
+    }
+    
+    // 2. Formato ISO / BIG-IP moderno: 2026-07-14T11:42:05 o 2026-07-14 11:42:05
+    const isoRegex = /^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/;
+    match = cleanLine.match(isoRegex);
+    if (match) {
+        const y = parseInt(match[1], 10);
+        const m = parseInt(match[2], 10) - 1;
+        const d = parseInt(match[3], 10);
+        const hh = parseInt(match[4], 10);
+        const mm = parseInt(match[5], 10);
+        const ss = parseInt(match[6], 10);
+        return new Date(y, m, d, hh, mm, ss);
+    }
+    
+    return null;
+}
+
+// Auxiliar para formatear fecha a string datetime-local (YYYY-MM-DDTHH:MM:SS)
+function formatDatetimeLocal(date) {
+    if (!date) return "";
+    const pad = (num) => String(num).padStart(2, '0');
+    const y = date.getFullYear();
+    const m = pad(date.getMonth() + 1);
+    const d = pad(date.getDate());
+    const hh = pad(date.getHours());
+    const mm = pad(date.getMinutes());
+    const ss = pad(date.getSeconds());
+    return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
+}
+
+// Configurar los límites del filtro cronológico basados en el log activo
+function initializeTimeFilters() {
+    const startInput = document.getElementById("time-filter-start");
+    const endInput = document.getElementById("time-filter-end");
+    if (!startInput || !endInput) return;
+    
+    startInput.value = "";
+    endInput.value = "";
+    
+    if (!rawLogContent || currentLogType !== "files") return;
+    
+    const lines = rawLogContent.split("\n");
+    let firstDate = null;
+    let lastDate = null;
+    
+    for (let i = 0; i < lines.length; i++) {
+        const d = parseLogLineTimestamp(lines[i]);
+        if (d) {
+            firstDate = d;
+            break;
+        }
+    }
+    
+    for (let i = lines.length - 1; i >= 0; i--) {
+        const d = parseLogLineTimestamp(lines[i]);
+        if (d) {
+            lastDate = d;
+            break;
+        }
+    }
+    
+    if (firstDate && lastDate) {
+        const startStr = formatDatetimeLocal(firstDate);
+        const endStr = formatDatetimeLocal(lastDate);
+        
+        startInput.min = startStr;
+        startInput.max = endStr;
+        startInput.value = startStr;
+        
+        endInput.min = startStr;
+        endInput.max = endStr;
+        endInput.value = endStr;
+    }
+}
+
+// Genera una explicación estructurada y educativa de comandos y líneas de logs
+function explainLogLine(line, commandName = "") {
+    if (commandName) {
+        let explanation = "Salida del comando TMSH ejecutado en el clúster BIG-IP.";
+        if (commandName.includes("sys hardware")) {
+            explanation = "Muestra el estado físico de la plataforma BIG-IP, incluyendo números de serie de componentes, estado de las fuentes de poder, velocidades de ventiladores y sensores de temperatura.";
+        } else if (commandName.includes("sys license")) {
+            explanation = "Detalla las características y límites autorizados por la licencia activa en el equipo, incluyendo la fecha de expiración y módulos habilitados (LTM, GTM, ASM, APM).";
+        } else if (commandName.includes("sys failover")) {
+            explanation = "Muestra el estado de failover actual del dispositivo (ej: Active, Standby, Offline) y las causas del estado actual.";
+        } else if (commandName.includes("sys cluster")) {
+            explanation = "Muestra el estado y configuración del clúster físico en plataformas Viprion (chasis multiblade). Detalla qué blades están activas y sincronizadas.";
+        } else if (commandName.includes("sys memory")) {
+            explanation = "Muestra el uso detallado de memoria física y virtual asignada tanto al sistema operativo Host (Linux) como al Traffic Management Microkernel (TMM).";
+        } else if (commandName.includes("sys cpu")) {
+            explanation = "Muestra las estadísticas de uso de CPU en tiempo real e histórico por núcleo físico, separando el plano de control (Host) y plano de datos (TMM).";
+        } else if (commandName.includes("net interface")) {
+            explanation = "Muestra estadísticas de tráfico de red por cada puerto físico (interfaces), incluyendo paquetes transmitidos/recibidos, errores de CRC, colisiones y estado del enlace (Up/Down).";
+        } else if (commandName.includes("ltm virtual")) {
+            explanation = "Muestra la configuración o estadísticas de tráfico cursado a través de los Virtual Servers de Capa 4 a Capa 7.";
+        } else if (commandName.includes("ltm pool")) {
+            explanation = "Muestra la configuración o estadísticas y estado de salud de todos los grupos de servidores de destino (Pools) del balanceador de carga.";
+        } else if (commandName.includes("ltm node")) {
+            explanation = "Muestra el estado operativo y contadores de tráfico de las direcciones IP físicas de los servidores backend (Nodes).";
+        }
+        
+        return `
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="font-weight: 600; color: #fff;">Comando TMSH: <code style="background-color: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; color: var(--color-warning);">${commandName}</code></div>
+                <div><strong>Descripción Educativa:</strong> ${explanation}</div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;"><i class="fa-solid fa-circle-info"></i> Esta es la salida completa del comando extraído del QKView. Úsalo para auditar la configuración declarativa del equipo BIG-IP.</div>
+            </div>
+        `;
+    }
+    
+    const cleanLine = line.replace(/<[^>]*>/g, "").trim();
+    if (!cleanLine) return "Línea vacía.";
+    
+    const ts = parseLogLineTimestamp(cleanLine);
+    const tsStr = ts ? ts.toLocaleString() : "No detectado en esta línea de log";
+    
+    let daemon = "Desconocido";
+    let daemonDesc = "No se identificó un daemon específico en esta línea. Puede ser un mensaje genérico del kernel o script local.";
+    
+    const daemonsMap = {
+        "mcpd": ["mcpd", "MCPD (Message Control Protocol Daemon) es el proceso core que administra la base de datos de configuración de BIG-IP (mcpdb). Es responsable de guardar y sincronizar la configuración, y comunicar los cambios entre los daemons."],
+        "tmm": ["tmm", "TMM (Traffic Management Microkernel) es el plano de datos de BIG-IP. Se encarga de procesar todo el tráfico de red, balanceo de carga, aceleración SSL y compresión. Corre en tiempo real directamente sobre el hardware/hipervisor."],
+        "sod": ["sod", "SOD (Switch Over Daemon) es el daemon encargado de la Alta Disponibilidad (HA) y el failover. Monitorea el estado de peer y decide cuándo pasar a estado Activo o Standby."],
+        "system_auth": ["system_auth", "Administrador de Autenticación del Sistema. Registra inicios de sesión, intentos de autenticación y actividades de SSH/GUI."],
+        "chassis": ["chassisd", "Daemon de Chasis. Monitorea los sensores físicos de hardware como temperatura, fuentes de alimentación, ventiladores y voltajes."],
+        "gtmd": ["gtmd", "GTM Daemon. Administrador de DNS global (BIG-IP DNS / GTM). Resuelve peticiones DNS de manera inteligente según la salud y ubicación geográfica."],
+        "httpd": ["httpd", "Servidor Web Apache de BIG-IP. Procesa las conexiones a la interfaz de administración Web GUI (Configuration Utility)."],
+        "lacpd": ["lacpd", "LACP Daemon. Administra el protocolo de control de agregación de enlaces (Link Aggregation Control Protocol) para trunks/etherchannel."],
+        "snmpd": ["snmpd", "Simple Network Management Protocol Daemon. Responde a consultas SNMP externas sobre la salud del dispositivo."],
+        "alertd": ["alertd", "Alert Daemon. Monitorea los archivos de log locales y genera alertas SNMP, correos electrónicos o llamadas a scripts (user_alert.conf) cuando se detectan patrones de error específicos."],
+        "syslog": ["syslog-ng", "Servicio de bitácora que recopila y distribuye los mensajes de logs internos y externos."],
+        "promptstatusd": ["promptstatusd", "Daemon de Prompt. Actualiza dinámicamente la información de estado de BIG-IP que se muestra en el prompt de la terminal (ej: Active, Standby, Changes Pending)."],
+        "clsh": ["clsh", "Cluster Shell. Utilizado en plataformas Viprion o chasis para enviar comandos a través de las distintas blades."]
+    };
+    
+    for (const key in daemonsMap) {
+        if (cleanLine.toLowerCase().includes(key)) {
+            daemon = daemonsMap[key][0];
+            daemonDesc = daemonsMap[key][1];
+            break;
+        }
+    }
+    
+    let kwsFound = [];
+    let recs = [];
+    
+    if (cleanLine.includes("failover") || cleanLine.includes("FAILOVER") || cleanLine.includes("sod")) {
+        kwsFound.push("Failover Event");
+        recs.push("Se ha detectado un cambio de rol de alta disponibilidad (Active/Standby). Revisa si hay mensajes del SOD para saber si fue gatillado manualmente o por falla de un pool o daemon.");
+    }
+    if (cleanLine.includes("disk full") || cleanLine.includes("space") || cleanLine.includes("LIMIT")) {
+        kwsFound.push("Almacenamiento");
+        recs.push("La partición está alcanzando su capacidad máxima. Ejecuta 'df -h' vía SSH o revisa el comando de disco en Ajustes para borrar archivos temporales o cores viejos en /var/core.");
+    }
+    if (cleanLine.includes("monitor") || cleanLine.includes("DOWN")) {
+        kwsFound.push("Health Check Down");
+        recs.push("Un monitor de salud determinó que un servidor destino (pool member o node) no responde. Verifica la conectividad de red, puertos de escucha y logs del servidor backend correspondiente.");
+    }
+    if (cleanLine.includes("UP")) {
+        kwsFound.push("Health Check Up");
+        recs.push("El servicio backend ha restablecido su respuesta al monitor y vuelve a recibir tráfico del balanceador.");
+    }
+    if (cleanLine.includes("OOM") || cleanLine.includes("memory") || cleanLine.includes("Out of memory")) {
+        kwsFound.push("Falta de Memoria");
+        recs.push("Error crítico. El sistema operativo se ha quedado sin memoria física. Se recomienda revisar la tabla de memoria en Gráficas de Rendimiento y auditar procesos de Java/GUI que puedan estar fugando RAM.");
+    }
+    if (cleanLine.includes("SSL") || cleanLine.includes("handshake")) {
+        kwsFound.push("Criptografía SSL/TLS");
+        recs.push("Mensaje de negociación de llaves. Común cuando clientes antiguos intentan usar SSLv3 o TLS 1.0 obsoletos, o si hay un mismatch en los cipher suites configurados.");
+    }
+    
+    if (recs.length === 0) {
+        recs.push("Auditoría general de syslog. El comportamiento parece informativo y sigue el flujo normal del sistema.");
+    }
+    
+    return `
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="font-weight: 600; color: #fff; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; margin-bottom: 4px;">
+                Línea Seleccionada: <span style="font-family: monospace; font-size: 11.5px; color: var(--color-warning);">${cleanLine.substring(0, 140)}${cleanLine.length > 140 ? '...' : ''}</span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                <div>
+                    <strong style="color: var(--text-secondary);">Marca de Tiempo:</strong> 
+                    <span style="color: #fff;">${tsStr}</span>
+                </div>
+                <div>
+                    <strong style="color: var(--text-secondary);">Proceso Responsable:</strong> 
+                    <span style="color: #fff; background-color: rgba(56,189,248,0.2); padding: 1px 6px; border-radius: 4px; font-size: 11px;">${daemon}</span>
+                </div>
+            </div>
+            <div style="margin-top: 4px;">
+                <strong style="color: var(--text-secondary);">Rol del Proceso:</strong> 
+                <span style="color: var(--text-secondary);">${daemonDesc}</span>
+            </div>
+            ${kwsFound.length > 0 ? `
+            <div style="margin-top: 4px;">
+                <strong style="color: var(--text-secondary);">Conceptos Clave:</strong> 
+                ${kwsFound.map(kw => `<span style="background-color: rgba(239,68,68,0.2); color: #f87171; padding: 1px 6px; border-radius: 4px; font-size: 11px; margin-right: 6px;">${kw}</span>`).join('')}
+            </div>` : ''}
+            <div style="margin-top: 4px; background-color: rgba(255,255,255,0.03); padding: 8px; border-radius: 4px; border-left: 3px solid var(--color-warning);">
+                <strong>Recomendación Operativa:</strong> ${recs.join(' ')}
+            </div>
+        </div>
+    `;
 }
 
 function renderLogContent() {
@@ -1097,12 +1348,19 @@ function renderLogContent() {
         return;
     }
     
-    // Obtener estados de los checkboxes
+    // Obtener estados de los checkboxes de severidad
     const showCrit = document.getElementById("chk-log-crit") ? document.getElementById("chk-log-crit").checked : true;
     const showWarn = document.getElementById("chk-log-warn") ? document.getElementById("chk-log-warn").checked : true;
     const showNotice = document.getElementById("chk-log-notice") ? document.getElementById("chk-log-notice").checked : true;
     const showInfo = document.getElementById("chk-log-info") ? document.getElementById("chk-log-info").checked : true;
     const showOthers = document.getElementById("chk-log-others") ? document.getElementById("chk-log-others").checked : true;
+
+    // Obtener estados del filtro cronológico
+    const startVal = document.getElementById("time-filter-start") ? document.getElementById("time-filter-start").value : "";
+    const endVal = document.getElementById("time-filter-end") ? document.getElementById("time-filter-end").value : "";
+    
+    const startDate = startVal ? new Date(startVal) : null;
+    const endDate = endVal ? new Date(endVal) : null;
 
     let escaped = rawLogContent.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     
@@ -1115,40 +1373,54 @@ function renderLogContent() {
     
     const lines = escaped.split("\n");
     const processedLines = [];
+    let lastTimestamp = null;
     
-    lines.forEach(line => {
+    lines.forEach((line, idx) => {
+        let ts = parseLogLineTimestamp(line);
+        if (ts) {
+            lastTimestamp = ts;
+        } else {
+            ts = lastTimestamp; // Mantener cronología para líneas de continuación
+        }
+        
         let isCrit = line.includes("ERR") || line.includes("ERROR") || line.includes("crit") || line.includes("CRITICAL") || line.includes("emerg") || line.includes("alert") || line.includes("Emerg") || line.includes("Alert");
         let isWarn = line.includes("WARN") || line.includes("WARNING") || line.includes("warning") || line.includes("Warn");
         let isNotice = line.includes("notice") || line.includes("NOTICE") || line.includes("Notice");
         let isInfo = line.includes("info") || line.includes("INFO") || line.includes("Info");
         
         let shouldShow = true;
-        let lineHtml = line;
         
-        if (isCrit) {
-            shouldShow = showCrit;
-            lineHtml = `<span style="color: var(--color-critical); font-weight: 500;">${line}</span>`;
-        } else if (isWarn) {
-            shouldShow = showWarn;
-            lineHtml = `<span style="color: var(--color-warning); font-weight: 500;">${line}</span>`;
-        } else if (isNotice) {
-            shouldShow = showNotice;
-            lineHtml = `<span style="color: #38bdf8; font-weight: 500;">${line}</span>`;
-        } else if (isInfo) {
-            shouldShow = showInfo;
-            lineHtml = `<span style="color: var(--text-secondary);">${line}</span>`;
-        } else {
-            shouldShow = showOthers;
+        if (isCrit) shouldShow = showCrit;
+        else if (isWarn) shouldShow = showWarn;
+        else if (isNotice) shouldShow = showNotice;
+        else if (isInfo) shouldShow = showInfo;
+        else shouldShow = showOthers;
+        
+        // Aplicar filtro por rango de tiempo
+        if (shouldShow && ts && currentLogType === "files") {
+            if (startDate && ts < startDate) shouldShow = false;
+            if (endDate && ts > endDate) shouldShow = false;
         }
         
         if (shouldShow) {
-            processedLines.push(lineHtml);
+            let lineHtml = line;
+            if (isCrit) {
+                lineHtml = `<span style="color: var(--color-critical); font-weight: 500;">${line}</span>`;
+            } else if (isWarn) {
+                lineHtml = `<span style="color: var(--color-warning); font-weight: 500;">${line}</span>`;
+            } else if (isNotice) {
+                lineHtml = `<span style="color: #38bdf8; font-weight: 500;">${line}</span>`;
+            } else if (isInfo) {
+                lineHtml = `<span style="color: var(--text-secondary);">${line}</span>`;
+            }
+            
+            processedLines.push(`<div class="log-line" data-line-num="${idx}">${lineHtml}</div>`);
         }
     });
     
     const displayHtml = processedLines.length > 0 
-        ? `<pre class="log-output" style="max-height: 500px; height: 500px; text-align: left; width: 100%; margin-top: 0; font-size: 12px; border: 1px solid var(--border-color);">${processedLines.join("\n")}</pre>`
-        : `<div style="padding: 40px; color: var(--text-muted); text-align: center;"><i class="fa-solid fa-filter-list fa-2x" style="margin-bottom:10px;"></i> No hay líneas coincidentes con los filtros de severidad.</div>`;
+        ? `<pre class="log-output" style="max-height: 520px; height: 520px; text-align: left; width: 100%; margin-top: 0; font-size: 12px; border: 1px solid var(--border-color);">${processedLines.join("")}</pre>`
+        : `<div style="padding: 40px; color: var(--text-muted); text-align: center;"><i class="fa-solid fa-filter-list fa-2x" style="margin-bottom:10px;"></i> No hay líneas coincidentes con los filtros activos.</div>`;
         
     viewerContainer.innerHTML = displayHtml;
 }
@@ -1164,7 +1436,6 @@ function setupLogExplorerEvents() {
             btnFiles.classList.add("active");
             btnCmds.classList.remove("active");
             
-            // Mostrar píldoras de categorías de archivo
             const fileCatFilters = document.getElementById("log-file-category-filters");
             if (fileCatFilters) fileCatFilters.classList.remove("hidden");
             
@@ -1175,7 +1446,11 @@ function setupLogExplorerEvents() {
             document.getElementById("log-viewer-title").innerText = "Visor de Logs";
             const logContainer = document.getElementById("log-viewer-container");
             const filtersContainer = document.getElementById("log-level-filters-container");
+            const timeFiltersContainer = document.getElementById("log-time-filter-container");
+            const eduPanel = document.getElementById("log-education-panel");
             if (filtersContainer) filtersContainer.classList.add("hidden");
+            if (timeFiltersContainer) timeFiltersContainer.classList.add("hidden");
+            if (eduPanel) eduPanel.classList.add("hidden");
             if (logContainer) {
                 logContainer.innerHTML = `
                     <i class="fa-solid fa-file-lines fa-3x" style="margin-bottom: 15px; color: var(--border-color);"></i>
@@ -1191,7 +1466,6 @@ function setupLogExplorerEvents() {
             btnCmds.classList.add("active");
             btnFiles.classList.remove("active");
             
-            // Ocultar píldoras de categorías de archivo en modo comando
             const fileCatFilters = document.getElementById("log-file-category-filters");
             if (fileCatFilters) fileCatFilters.classList.add("hidden");
             
@@ -1202,7 +1476,11 @@ function setupLogExplorerEvents() {
             document.getElementById("log-viewer-title").innerText = "Visor de Comandos";
             const logContainer = document.getElementById("log-viewer-container");
             const filtersContainer = document.getElementById("log-level-filters-container");
+            const timeFiltersContainer = document.getElementById("log-time-filter-container");
+            const eduPanel = document.getElementById("log-education-panel");
             if (filtersContainer) filtersContainer.classList.add("hidden");
+            if (timeFiltersContainer) timeFiltersContainer.classList.add("hidden");
+            if (eduPanel) eduPanel.classList.add("hidden");
             if (logContainer) {
                 logContainer.innerHTML = `
                     <i class="fa-solid fa-terminal fa-3x" style="margin-bottom: 15px; color: var(--border-color);"></i>
@@ -1213,7 +1491,6 @@ function setupLogExplorerEvents() {
         });
     }
     
-    // Listeners para las píldoras de categoría de archivos
     const catPills = document.getElementById("log-file-category-filters");
     if (catPills) {
         const buttons = catPills.querySelectorAll("button");
@@ -1227,7 +1504,6 @@ function setupLogExplorerEvents() {
         });
     }
     
-    // Listeners para los checkboxes de niveles de severidad
     const chkIds = ["chk-log-crit", "chk-log-warn", "chk-log-notice", "chk-log-info", "chk-log-others"];
     chkIds.forEach(id => {
         const chk = document.getElementById(id);
@@ -1239,6 +1515,58 @@ function setupLogExplorerEvents() {
             });
         }
     });
+
+    // Listeners del rango cronológico de tiempo
+    const timeStart = document.getElementById("time-filter-start");
+    const timeEnd = document.getElementById("time-filter-end");
+    if (timeStart) timeStart.addEventListener("change", () => renderLogContent());
+    if (timeEnd) timeEnd.addEventListener("change", () => renderLogContent());
+    
+    const btnResetTime = document.getElementById("btn-clear-time-filter");
+    if (btnResetTime) {
+        btnResetTime.addEventListener("click", () => {
+            initializeTimeFilters();
+            renderLogContent();
+        });
+    }
+
+    // Interceptación de clics en las líneas para lanzar el asistente educativo
+    const viewerContainer = document.getElementById("log-viewer-container");
+    if (viewerContainer) {
+        viewerContainer.addEventListener("click", (e) => {
+            const lineEl = e.target.closest(".log-line");
+            if (lineEl) {
+                viewerContainer.querySelectorAll(".log-line").forEach(el => el.classList.remove("active-line"));
+                lineEl.classList.add("active-line");
+                
+                const lineText = lineEl.innerText;
+                const eduPanel = document.getElementById("log-education-panel");
+                const eduContent = document.getElementById("log-education-content");
+                
+                if (eduPanel && eduContent) {
+                    eduPanel.classList.remove("hidden");
+                    if (currentLogType === "commands") {
+                        eduContent.innerHTML = explainLogLine(lineText, selectedLogItemName);
+                    } else {
+                        eduContent.innerHTML = explainLogLine(lineText);
+                    }
+                    eduPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            }
+        });
+    }
+
+    // Cerrar panel de educación
+    const btnCloseEdu = document.getElementById("btn-close-education");
+    if (btnCloseEdu) {
+        btnCloseEdu.onclick = () => {
+            const eduPanel = document.getElementById("log-education-panel");
+            if (eduPanel) eduPanel.classList.add("hidden");
+            if (viewerContainer) {
+                viewerContainer.querySelectorAll(".log-line").forEach(el => el.classList.remove("active-line"));
+            }
+        };
+    }
 
     const logSearch = document.getElementById("log-search-input");
     if (logSearch) {
