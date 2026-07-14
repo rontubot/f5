@@ -82,8 +82,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Comprobar si el backend en Railway está respondiendo
 async function checkBackendConnection() {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 4000);
     try {
-        const response = await fetch(`${BACKEND_API_URL}/health`, { timeout: 4000 });
+        const response = await fetch(`${BACKEND_API_URL}/health`, { signal: controller.signal });
+        clearTimeout(id);
         if (response.ok) {
             console.log("Conectado exitosamente al backend en Railway:", BACKEND_API_URL);
             isBackendOnline = true;
@@ -93,6 +96,7 @@ async function checkBackendConnection() {
             throw new Error("Backend offline");
         }
     } catch (error) {
+        clearTimeout(id);
         console.warn("No se pudo conectar al backend en Railway. Usando modo de demostración local con datos de prueba.");
         document.querySelector(".device-status-badge").innerHTML = `<span class="pulse-dot" style="background-color: #f59e0b; box-shadow: 0 0 8px #f59e0b;"></span><span style="color: #f59e0b;">Modo Demo (Backend Offline)</span>`;
         loadMockData();
@@ -2297,7 +2301,6 @@ function getRandomColorForDataset(label) {
     }
     const h = Math.abs(hash % 360);
     return `hsl(${h}, 85%, 60%)`;
-}
 }
 
 // --- 11. Buscador de Logs Unificado (iHealth Log Search Console) ---
