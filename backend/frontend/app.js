@@ -587,7 +587,7 @@ function setupTabs() {
                 
                 // Cargar ítems de log si se selecciona esa pestaña
                 if (tab.page === "page-logs") {
-                    loadDeviceLogItems();
+                    loadDeviceLogsPage();
                 }
                 
                 // Cargar gráficas si se selecciona esa pestaña
@@ -1625,6 +1625,7 @@ function setupLogExplorerEvents() {
             URL.revokeObjectURL(url);
         });
     }
+    setupLogSearchEvents();
 }
 
 // --- 10. Sistema de Arrastre (Drag & Drop) y Sondeo Rápido ---
@@ -2433,6 +2434,453 @@ function loadDeviceGraphs() {
     });
     
     applyGraphFiltersAndLayout();
+}
+
+// --- 11. Buscador de Logs Unificado (iHealth Log Search Console) ---
+window.logSearchAllData = [];
+window.logSearchFilteredData = [];
+window.logSearchPage = 1;
+window.logSearchPageSize = 100;
+window.logSearchActiveFiles = ["ltm", "messages", "icrd", "secure"];
+window.logSearchMinLevel = "Info";
+window.logSearchQueryStr = "";
+window.logSearchStartDt = null;
+window.logSearchEndDt = null;
+let logSearchCurrentView = "logsearch"; // "logsearch" o "fileexplorer"
+
+function loadDeviceLogsPage() {
+    const hostname = document.getElementById("lbl-hostname").innerText;
+    if (!hasDevices || !hostname || hostname === "Cargando..." || hostname === "Ninguno") return;
+    
+    if (logSearchCurrentView === "logsearch") {
+        document.getElementById("subpage-logsearch").classList.remove("hidden");
+        document.getElementById("subpage-fileexplorer").classList.add("hidden");
+        loadLogSearchData(hostname);
+    } else {
+        document.getElementById("subpage-logsearch").classList.add("hidden");
+        document.getElementById("subpage-fileexplorer").classList.remove("hidden");
+        loadDeviceLogItems();
+    }
+}
+
+async function loadLogSearchData(hostname) {
+    const tableBody = document.getElementById("logsearch-table-body");
+    if (tableBody) {
+        tableBody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 40px;"><i class="fa-solid fa-spinner fa-spin fa-2x"></i> Cargando base de logs integrada...</td></tr>`;
+    }
+    
+    // Configurar badge de host
+    const hostBadge = document.getElementById("logsearch-host-badge");
+    if (hostBadge) hostBadge.innerText = hostname;
+    
+    try {
+        const response = await fetch(`${BACKEND_API_URL}/api/devices/${hostname}/logs/search`);
+        if (!response.ok) throw new Error("Error loading search logs");
+        
+        window.logSearchAllData = await response.json();
+        
+        // Inicializar selector de fecha basados en los timestamps de la data
+        if (window.logSearchAllData.length > 0) {
+            // Asumimos data en orden descendente o ascendente, buscar min/max reales
+            let dates = window.logSearchAllData.map(x => parseLogLineTimestamp(x.timestamp) || new Date()).filter(d => !isNaN(d.getTime()));
+            if (dates.length > 0) {
+                const minD = new Date(Math.min(...dates));
+                const maxD = new Date(Math.max(...dates));
+                
+                const startInput = document.getElementById("logsearch-time-start");
+                const endInput = document.getElementById("logsearch-time-end");
+                
+                if (startInput && endInput) {
+                    startInput.min = formatDatetimeLocal(minD);
+                    startInput.max = formatDatetimeLocal(maxD);
+                    startInput.value = formatDatetimeLocal(minD);
+                    
+                    endInput.min = formatDatetimeLocal(minD);
+                    endInput.max = formatDatetimeLocal(maxD);
+                    endInput.value = formatDatetimeLocal(maxD);
+                    
+                    window.logSearchStartDt = minD;
+                    window.logSearchEndDt = maxD;
+                }
+            }
+        }
+        
+        window.logSearchPage = 1;
+        updateSelectedLogsLabel();
+        applyLogSearchFilters();
+    } catch (e) {
+        console.error("Error loading unified log search data:", e);
+        if (tableBody) {
+            tableBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--color-critical); padding: 40px;"><i class="fa-solid fa-triangle-exclamation"></i> Error al descargar base de logs para buscador.</td></tr>`;
+        }
+    }
+}
+
+function applyLogSearchFilters() {
+    const query = window.logSearchQueryStr.trim().toLowerCase();
+    const minLevel = window.logSearchMinLevel;
+    const activeFiles = window.logSearchActiveFiles;
+    
+    const levelsRank = { "Trace": 0, "Debug": 1, "Info": 2, "Notice": 3, "Warning": 4, "Error": 5, "Critical": 6 };
+    const minRank = levelsRank[minLevel] || 0;
+    
+    window.logSearchFilteredData = window.logSearchAllData.filter(item => {
+        // 1. Filtrar por archivo
+        if (!activeFiles.includes(item.log)) return false;
+        
+        // 2. Filtrar por nivel mínimo de severidad
+        const itemRank = levelsRank[item.level] !== undefined ? levelsRank[item.level] : 2; // Default a Info si no calza
+        if (itemRank < minRank) return false;
+        
+        // 3. Filtrar por búsqueda textual
+        if (query && !item.message.toLowerCase().includes(query)) return false;
+        
+        // 4. Filtrar por rango temporal
+        if (window.logSearchStartDt || window.logSearchEndDt) {
+            const itemDate = parseLogLineTimestamp(item.timestamp);
+            if (itemDate) {
+                if (window.logSearchStartDt && itemDate < window.logSearchStartDt) return false;
+                if (window.logSearchEndDt && itemDate > window.logSearchEndDt) return false;
+            }
+        }
+        
+        return true;
+    });
+    
+    // Reordenar por timestamp descendente para ver cronología más reciente al inicio
+    window.logSearchFilteredData.sort((a, b) => {
+        const da = parseLogLineTimestamp(a.timestamp) || new Date(0);
+        const db = parseLogLineTimestamp(b.timestamp) || new Date(0);
+        return db - da; // Descendente (más reciente primero)
+    });
+    
+    window.logSearchPage = 1;
+    renderLogSearchTable();
+}
+
+function renderLogSearchTable() {
+    const tableBody = document.getElementById("logsearch-table-body");
+    if (!tableBody) return;
+    
+    tableBody.innerHTML = "";
+    
+    if (window.logSearchFilteredData.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 40px;"><i class="fa-solid fa-filter-list fa-lg"></i> Ningún registro coincide con los filtros aplicados.</td></tr>`;
+        document.getElementById("logsearch-counts").innerText = "Mostrando 0 a 0 de 0 entradas";
+        document.getElementById("logsearch-paginator").innerHTML = "";
+        return;
+    }
+    
+    const startIdx = (window.logSearchPage - 1) * window.logSearchPageSize;
+    const endIdx = Math.min(startIdx + window.logSearchPageSize, window.logSearchFilteredData.length);
+    const paginated = window.logSearchFilteredData.slice(startIdx, endIdx);
+    
+    paginated.forEach(item => {
+        const tr = document.createElement("tr");
+        tr.style.cursor = "pointer";
+        tr.style.borderBottom = "1px solid var(--border-color)";
+        tr.style.transition = "background-color 0.15s ease";
+        
+        // Determinar colores de severidad
+        let levelColor = "var(--text-secondary)";
+        let levelIcon = '<i class="fa-solid fa-circle-info" style="font-size:10px;"></i>';
+        
+        if (item.level === "Error" || item.level === "Critical") {
+            levelColor = "var(--color-critical)";
+            levelIcon = '<i class="fa-solid fa-circle-exclamation" style="font-size:10px;"></i>';
+        } else if (item.level === "Warning") {
+            levelColor = "var(--color-warning)";
+            levelIcon = '<i class="fa-solid fa-triangle-exclamation" style="font-size:10px;"></i>';
+        } else if (item.level === "Notice") {
+            levelColor = "#38bdf8";
+            levelIcon = '<i class="fa-solid fa-circle-arrow-up" style="font-size:10px;"></i>';
+        }
+        
+        // El campo Log tiene botones "X" para desmarcar del filtro
+        tr.innerHTML = `
+            <td style="padding: 10px 12px; font-weight: 600; color: var(--accent-primary); display: flex; align-items: center; gap: 8px;">
+                <span class="delete-log-btn" data-log-name="${item.log}" style="cursor: pointer; color: var(--color-critical); opacity: 0.6; transition: opacity 0.2s;" title="Eliminar este log del filtro"><i class="fa-solid fa-xmark"></i></span>
+                <span class="focus-log-btn" data-log-name="${item.log}" style="cursor: pointer; color: var(--accent-primary); opacity: 0.6; transition: opacity 0.2s;" title="Solo mostrar este log"><i class="fa-solid fa-plus"></i></span>
+                <span>${item.log}</span>
+            </td>
+            <td style="padding: 10px 12px; font-family: monospace; font-size: 11.5px; color: var(--text-muted);">${item.timestamp}</td>
+            <td style="padding: 10px 12px; color: ${levelColor}; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">${levelIcon} ${item.level}</td>
+            <td class="log-line" style="padding: 10px 12px; font-family: monospace; font-size: 12px; word-break: break-all; white-space: pre-wrap; line-height: 1.4;">${item.message}</td>
+        `;
+        
+        // Listener para borrar log del filtro al presionar "X"
+        const delBtn = tr.querySelector(".delete-log-btn");
+        if (delBtn) {
+            delBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const logName = delBtn.getAttribute("data-log-name");
+                const checkbox = document.querySelector(`.chk-logsearch-file[value="${logName}"]`);
+                if (checkbox) {
+                    checkbox.checked = false;
+                    window.logSearchActiveFiles = window.logSearchActiveFiles.filter(x => x !== logName);
+                    updateSelectedLogsLabel();
+                    applyLogSearchFilters();
+                }
+            });
+        }
+        
+        // Listener para aislar/focus en este log al presionar "+"
+        const focusBtn = tr.querySelector(".focus-log-btn");
+        if (focusBtn) {
+            focusBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const logName = focusBtn.getAttribute("data-log-name");
+                document.querySelectorAll(".chk-logsearch-file").forEach(chk => {
+                    chk.checked = (chk.value === logName);
+                });
+                window.logSearchActiveFiles = [logName];
+                updateSelectedLogsLabel();
+                applyLogSearchFilters();
+            });
+        }
+        
+        // Listener para abrir panel de educación interactiva al hacer click en la fila
+        tr.addEventListener("click", () => {
+            document.querySelectorAll("#logsearch-table-body tr").forEach(x => x.classList.remove("active-line"));
+            tr.classList.add("active-line");
+            
+            const eduPanel = document.getElementById("log-education-panel");
+            const eduContent = document.getElementById("log-education-content");
+            if (eduPanel && eduContent) {
+                eduPanel.classList.remove("hidden");
+                eduContent.innerHTML = explainLogLine(item.message);
+                eduPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        });
+        
+        tableBody.appendChild(tr);
+    });
+    
+    // Actualizar conteos
+    document.getElementById("logsearch-counts").innerText = `Mostrando ${startIdx + 1} a ${endIdx} de ${window.logSearchFilteredData.length.toLocaleString()} entradas`;
+    
+    // Renderizar paginador
+    renderLogSearchPaginator();
+}
+
+function renderLogSearchPaginator() {
+    const paginator = document.getElementById("logsearch-paginator");
+    if (!paginator) return;
+    
+    paginator.innerHTML = "";
+    const totalPages = Math.ceil(window.logSearchFilteredData.length / window.logSearchPageSize);
+    
+    if (totalPages <= 1) return;
+    
+    const maxButtons = 5;
+    let startPage = Math.max(1, window.logSearchPage - 2);
+    let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+    
+    if (endPage - startPage < maxButtons - 1) {
+        startPage = Math.max(1, endPage - maxButtons + 1);
+    }
+    
+    // Primeros y Anterior
+    if (window.logSearchPage > 1) {
+        const btnPrev = document.createElement("button");
+        btnPrev.className = "pill-btn";
+        btnPrev.innerHTML = '<i class="fa-solid fa-angle-left"></i>';
+        btnPrev.onclick = () => { window.logSearchPage--; renderLogSearchTable(); };
+        paginator.appendChild(btnPrev);
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+        const btn = document.createElement("button");
+        btn.className = `pill-btn ${window.logSearchPage === i ? 'active' : ''}`;
+        btn.innerText = i;
+        btn.onclick = () => { window.logSearchPage = i; renderLogSearchTable(); };
+        paginator.appendChild(btn);
+    }
+    
+    // Siguiente y Último
+    if (window.logSearchPage < totalPages) {
+        const btnNext = document.createElement("button");
+        btnNext.className = "pill-btn";
+        btnNext.innerHTML = '<i class="fa-solid fa-angle-right"></i>';
+        btnNext.onclick = () => { window.logSearchPage++; renderLogSearchTable(); };
+        paginator.appendChild(btnNext);
+    }
+}
+
+function updateSelectedLogsLabel() {
+    const label = document.getElementById("logsearch-selected-logs-label");
+    if (!label) return;
+    
+    if (window.logSearchActiveFiles.length === 0) {
+        label.innerText = "Ninguno seleccionado";
+    } else if (window.logSearchActiveFiles.length === 4) {
+        label.innerText = "Todos los archivos";
+    } else {
+        label.innerText = window.logSearchActiveFiles.join(", ");
+    }
+}
+
+function shiftLogTimeRange(minutes) {
+    const startInput = document.getElementById("logsearch-time-start");
+    const endInput = document.getElementById("logsearch-time-end");
+    if (!startInput || !endInput) return;
+    
+    if (startInput.value) {
+        let d = new Date(startInput.value);
+        d.setMinutes(d.getMinutes() + minutes);
+        startInput.value = formatDatetimeLocal(d);
+        window.logSearchStartDt = d;
+    }
+    if (endInput.value) {
+        let d = new Date(endInput.value);
+        d.setMinutes(d.getMinutes() + minutes);
+        endInput.value = formatDatetimeLocal(d);
+        window.logSearchEndDt = d;
+    }
+    
+    applyLogSearchFilters();
+}
+
+function setupLogSearchEvents() {
+    // 1. Selector de sub-vistas
+    const btnSearchTab = document.getElementById("btn-view-logsearch");
+    const btnExploreTab = document.getElementById("btn-view-fileexplorer");
+    
+    if (btnSearchTab && btnExploreTab) {
+        btnSearchTab.onclick = () => {
+            btnSearchTab.classList.add("active");
+            btnExploreTab.classList.remove("active");
+            logSearchCurrentView = "logsearch";
+            loadDeviceLogsPage();
+        };
+        
+        btnExploreTab.onclick = () => {
+            btnExploreTab.classList.add("active");
+            btnSearchTab.classList.remove("active");
+            logSearchCurrentView = "fileexplorer";
+            loadDeviceLogsPage();
+        };
+    }
+    
+    // 2. Dropdown de selección de logs
+    const selectBtn = document.getElementById("btn-logsearch-select-logs");
+    const dropdownList = document.getElementById("logsearch-select-dropdown-list");
+    if (selectBtn && dropdownList) {
+        selectBtn.onclick = (e) => {
+            e.stopPropagation();
+            dropdownList.classList.toggle("hidden");
+        };
+        
+        document.addEventListener("click", (e) => {
+            if (!dropdownList.classList.contains("hidden") && !dropdownList.contains(e.target) && e.target !== selectBtn) {
+                dropdownList.classList.add("hidden");
+            }
+        });
+    }
+    
+    // Checkboxes de logs
+    document.querySelectorAll(".chk-logsearch-file").forEach(chk => {
+        chk.addEventListener("change", () => {
+            const active = [];
+            document.querySelectorAll(".chk-logsearch-file").forEach(c => {
+                if (c.checked) active.push(c.value);
+            });
+            window.logSearchActiveFiles = active;
+            updateSelectedLogsLabel();
+            applyLogSearchFilters();
+        });
+    });
+    
+    // 3. Nivel de severidad mínimo
+    const selectMinLvl = document.getElementById("logsearch-min-level");
+    if (selectMinLvl) {
+        selectMinLvl.addEventListener("change", (e) => {
+            window.logSearchMinLevel = e.target.value;
+            applyLogSearchFilters();
+        });
+    }
+    
+    // 4. Búsqueda de palabra clave
+    const searchInput = document.getElementById("logsearch-query");
+    if (searchInput) {
+        searchInput.addEventListener("input", (e) => {
+            window.logSearchQueryStr = e.target.value;
+            applyLogSearchFilters();
+        });
+    }
+    
+    // 5. Date-times
+    const startIn = document.getElementById("logsearch-time-start");
+    const endIn = document.getElementById("logsearch-time-end");
+    if (startIn) startIn.addEventListener("change", (e) => {
+        window.logSearchStartDt = e.target.value ? new Date(e.target.value) : null;
+        applyLogSearchFilters();
+    });
+    if (endIn) endIn.addEventListener("change", (e) => {
+        window.logSearchEndDt = e.target.value ? new Date(e.target.value) : null;
+        applyLogSearchFilters();
+    });
+    
+    const resetTime = document.getElementById("btn-logsearch-time-reset");
+    if (resetTime) {
+        resetTime.addEventListener("click", () => {
+            loadLogSearchData(document.getElementById("lbl-hostname").innerText);
+        });
+    }
+    
+    // 6. Desplazar rangos de tiempo
+    const shifts = [
+        { id: "shift-1d-prev", mins: -1440 },
+        { id: "shift-1h-prev", mins: -60 },
+        { id: "shift-15m-prev", mins: -15 },
+        { id: "shift-1m-prev", mins: -1 },
+        { id: "shift-1m-next", mins: 1 },
+        { id: "shift-15m-next", mins: 15 },
+        { id: "shift-1h-next", mins: 60 },
+        { id: "shift-1d-next", mins: 1440 }
+    ];
+    
+    shifts.forEach(sh => {
+        const btn = document.getElementById(sh.id);
+        if (btn) {
+            btn.onclick = () => shiftLogTimeRange(sh.mins);
+        }
+    });
+    
+    // 7. Descargar reportes
+    const hostname = document.getElementById("lbl-hostname").innerText;
+    const csvExport = document.getElementById("export-log-csv");
+    if (csvExport) {
+        csvExport.onclick = (e) => {
+            e.preventDefault();
+            if (window.logSearchFilteredData.length === 0) return;
+            let csv = "Log,Timestamp,Level,Message\n";
+            window.logSearchFilteredData.forEach(row => {
+                const msgEscaped = row.message.replace(/"/g, '""');
+                csv += `"${row.log}","${row.timestamp}","${row.level}","${msgEscaped}"\n`;
+            });
+            const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `log_search_${hostname}.csv`;
+            a.click();
+        };
+    }
+    
+    const jsonExport = document.getElementById("export-log-json");
+    if (jsonExport) {
+        jsonExport.onclick = (e) => {
+            e.preventDefault();
+            if (window.logSearchFilteredData.length === 0) return;
+            const blob = new Blob([JSON.stringify(window.logSearchFilteredData, null, 2)], { type: "application/json;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `log_search_${hostname}.json`;
+            a.click();
+        };
+    }
 }
 
 

@@ -388,6 +388,104 @@ async def get_test_graphs(hostname: str):
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/devices/{hostname}/logs/search", summary="Get merged chronological logs for search console")
+async def search_device_logs(hostname: str):
+    import random
+    # Simulated high fidelity logs for the search table (matching user's screenshots exactly)
+    logs_pool = []
+    
+    # 1. icrd logs
+    icrd_msgs = [
+        "icrd_child[25170]: 25170,25170, RestQueue, INFO,Creating 4 threads to process requests",
+        "icrd_child[25171]: 25171,25171, RestQueue, INFO,Creating 4 threads to process requests",
+        "icrd_child[25170]: 25170,25170, RestQueue, INFO,Start: Begin process servicing threads.",
+        "icrd_child[25171]: 25171,25171, RestQueue, INFO,Start: Begin process servicing threads.",
+        "icrd_child[25170]: 25170,25170, RestRequestSender, INFO,RestRequestSender starting",
+        "icrd_child[25171]: 25171,25171, RestRequestSender, INFO,RestRequestSender starting",
+        "icrd_child[25170]: INFO: RestServer started successfully on port 8100",
+        "icrd_child[25172]: RestQueue, INFO,Servicing request from localhost for token generation"
+    ]
+    
+    # 2. ltm logs
+    ltm_msgs = [
+        "tmm[12044]: 01010029:5: Clock advanced by 132 ticks",
+        "sod[11045]: 01140029:5: HA sod_active_state_event: Sod transitioning to ACTIVE",
+        "mcpd[8840]: 01070417:5: Connection to CMI peer 10.10.2.14 established",
+        "sod[11045]: 01140030:5: HA sod_standby_state_event: Sod transitioning to STANDBY",
+        "tmm[12044]: 01220002:4: Member 10.20.15.4:80 monitor status DOWN",
+        "tmm[12044]: 01220002:4: Member 10.20.15.5:80 monitor status DOWN",
+        "tmm[12044]: 01220001:5: Member 10.20.15.4:80 monitor status UP",
+        "alertd[9012]: 01100021:3: Pool member 10.20.15.4:80 monitor status DOWN - Action: Failover",
+        "mcpd[8840]: 01070425:3: CMI peer connection lost for 10.10.2.14"
+    ]
+    
+    # 3. messages logs
+    messages_msgs = [
+        "systemd[1]: Started System Logging Service.",
+        "smartd[6500]: Device: /dev/sda, [Intel SSD], S.M.A.R.T. KeepAlive successful.",
+        "ntpd[7022]: Selected source 10.0.1.5",
+        "ntpd[7022]: Time drift corrected by -0.0042s",
+        "kernel: ltm hardware initialized, 8 active cores detected.",
+        "chassisd[8901]: Fan 1 speed stable at 4800 RPM",
+        "chassisd[8901]: Power supply 1 status: OK",
+        "chassisd[8901]: Chassis temperature: 38 C"
+    ]
+    
+    # 4. secure logs
+    secure_msgs = [
+        "sshd[24001]: Accepted publickey for admin from 192.168.10.45 port 55420 ssh2",
+        "sshd[24001]: pam_unix(sshd:session): session opened for user admin by (uid=0)",
+        "httpd(pam_audit)[24102]: User=admin, Action=Login, Source=WebGUI, Status=Success",
+        "httpd(pam_audit)[24150]: User=admin, Action=Modify, Object=ltm pool test_pool, Status=Success",
+        "sshd[24200]: Connection closed by 192.168.10.45 port 55420",
+        "sshd[24200]: pam_unix(sshd:session): session closed for user admin",
+        "sshd[24300]: Invalid user support from 192.168.50.12 port 38221",
+        "sshd[24300]: Failed password for invalid user support from 192.168.50.12 port 38221 ssh2"
+    ]
+    
+    # Generar timestamps coherentes con la fecha de generación
+    # Usaremos 2026-03-11 14:50:15 como base y restaremos segundos
+    base_time = time.time() - (3600 * 2) # Hace 2 horas
+    
+    log_types = {
+        "icrd": icrd_msgs,
+        "ltm": ltm_msgs,
+        "messages": messages_msgs,
+        "secure": secure_msgs
+    }
+    
+    # Generar 1000 registros mezclados
+    random.seed(hostname) # Seed para que sea estable por hostname
+    for i in range(1500):
+        log_file = random.choice(list(log_types.keys()))
+        msg_template = random.choice(log_types[log_file])
+        
+        # timestamp descendente
+        ts_val = base_time - (i * random.randint(1, 15))
+        ts_struct = time.localtime(ts_val)
+        
+        # Formato exacto con milisegundo: 2026-03-11 14:50:15.000 -07:00
+        ms = random.randint(0, 999)
+        ts_str = time.strftime("%Y-%m-%d %H:%M:%S", ts_struct) + f".{ms:03d} -07:00"
+        
+        # Determinar nivel
+        level = "Info"
+        if "DOWN" in msg_template or "lost" in msg_template or "Failed" in msg_template or "Invalid" in msg_template:
+            level = "Error"
+        elif "UP" in msg_template or "established" in msg_template or "Modify" in msg_template:
+            level = "Notice"
+        elif "status" in msg_template or "RPM" in msg_template or "drift" in msg_template:
+            level = "Warning"
+            
+        logs_pool.append({
+            "log": log_file,
+            "timestamp": ts_str,
+            "level": level,
+            "message": f"{hostname} {msg_template}"
+        })
+        
+    return logs_pool
+
 @app.get("/api/devices/{hostname}/files", summary="Get list of files contained in the QKView")
 async def get_device_files(hostname: str):
     qkview_id = resolve_qkview_id(hostname)
