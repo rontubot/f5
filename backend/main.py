@@ -461,8 +461,16 @@ async def search_device_logs(hostname: str):
                 "icrd": "/var/log/icrd"
             }
             
+            # Normalizar respuesta XML-a-JSON a lista plana de diccionarios
+            files_list = []
+            if isinstance(files_data, dict):
+                file_node = files_data.get("file") or files_data.get("files", {}).get("file", [])
+                files_list = file_node if isinstance(file_node, list) else [file_node] if file_node else []
+            elif isinstance(files_data, list):
+                files_list = files_data
+                
             log_ids = {}
-            for f in files_data:
+            for f in files_list:
                 f_name = f.get("name", "")
                 f_id = f.get("id", "")
                 if f_name and f_id:
@@ -717,7 +725,26 @@ async def get_device_graphs_list(hostname: str):
         graphs_data = ihealth_client.get_qkview_graphs(qkview_id)
         if not graphs_data:
             return {"available": False, "source": "none", "reason": "No hay gráficas de rendimiento reales disponibles en la API de iHealth."}
-        return {"available": True, "source": "ihealth", "data": graphs_data}
+            
+        # Normalizar respuesta XML-a-JSON a lista plana de diccionarios
+        graphs_list = []
+        if isinstance(graphs_data, dict):
+            graph_node = graphs_data.get("graph") or graphs_data.get("graphs", {}).get("graph", [])
+            graphs_list = graph_node if isinstance(graph_node, list) else [graph_node] if graph_node else []
+        elif isinstance(graphs_data, list):
+            graphs_list = graphs_data
+            
+        normalized = []
+        for g in graphs_list:
+            g_id = g.get("id") or g.get("graph_id") or g.get("graphId")
+            g_name = g.get("name") or g.get("value") or g.get("title") or g_id or ""
+            if g_id:
+                normalized.append({
+                    "id": str(g_id),
+                    "name": str(g_name),
+                    "description": g.get("description") or g.get("desc") or ""
+                })
+        return {"available": True, "source": "ihealth", "data": normalized}
     except Exception as e:
         print(f"[main] Error fetching graphs for {hostname}: {e}")
         return {"available": False, "source": "none", "reason": f"Error descargando gráficas: {str(e)}"}
@@ -731,7 +758,50 @@ async def get_device_graph_data(hostname: str, graph_id: str):
         graph_data = ihealth_client.get_qkview_graph_data(qkview_id, graph_id)
         if not graph_data:
             raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found or empty")
-        return graph_data
+            
+        # Normalizar la estructura de datos para que la reciba Chart.js
+        g_data = {}
+        if isinstance(graph_data, dict):
+            g_data = graph_data.get("graph") or graph_data
+            
+        labels = g_data.get("labels") or []
+        if isinstance(labels, dict):
+            labels = labels.get("label") or []
+        if not isinstance(labels, list):
+            labels = [labels] if labels else []
+            
+        datasets_list = g_data.get("datasets", {}).get("dataset") or g_data.get("datasets") or []
+        if isinstance(datasets_list, dict):
+            datasets_list = [datasets_list]
+        elif not isinstance(datasets_list, list):
+            datasets_list = []
+            
+        normalized_datasets = []
+        for ds in datasets_list:
+            if isinstance(ds, dict):
+                label = ds.get("label") or ds.get("name") or "data"
+                data_points = ds.get("data") or ds.get("value") or ds.get("values") or []
+                if isinstance(data_points, dict):
+                    data_points = data_points.get("point") or data_points.get("value") or []
+                if not isinstance(data_points, list):
+                    data_points = [data_points] if data_points else []
+                
+                cleaned_data = []
+                for v in data_points:
+                    try:
+                        cleaned_data.append(float(v) if v is not None else 0.0)
+                    except (ValueError, TypeError):
+                        cleaned_data.append(0.0)
+                        
+                normalized_datasets.append({
+                    "label": str(label),
+                    "data": cleaned_data
+                })
+                
+        return {
+            "labels": labels,
+            "datasets": normalized_datasets
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
